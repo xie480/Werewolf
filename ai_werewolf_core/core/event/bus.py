@@ -11,7 +11,11 @@ from typing import Callable, Dict, List, Optional, Awaitable, Any, Union
 
 from ai_werewolf_core.schemas.models import Event
 from ai_werewolf_core.schemas.enums import EventType, Visibility
+import uuid
+
 from ai_werewolf_core.utils.logger import get_logger
+from ai_werewolf_core.db.session import async_session_factory
+from ai_werewolf_core.db.models import EventRecord
 
 logger = get_logger(__name__)
 
@@ -38,6 +42,8 @@ class EventBus:
         
         # 默认添加日志订阅者
         self.subscribe_all(self._default_log_subscriber)
+        # Phase 1: 添加数据库持久化订阅者，实现事件溯源存储
+        self.subscribe_all(self._persist_to_db)
 
     def _generate_seq_num(self, game_id: str) -> int:
         """生成全局单调递增的序列号"""
@@ -129,6 +135,44 @@ class EventBus:
             target_agents=event.target_agents,
             payload=event.payload
         )
+
+    async def _persist_to_db(self, event: Event) -> None:
+        """
+        数据库持久化订阅者 —— 将事件写入 EventRecord 表。
+        
+        **Why**: 遵循 Event Sourcing 架构，所有事件必须持久化到 PostgreSQL，
+        以支持复盘回放和状态重建。此方法作为全局订阅者被 EventBus 自动调用。
+        """
+        try:
+            record = EventRecord(
+                id=str(uuid.uuid4()),
+                event_id=event.event_id,
+                game_id=event.game_id,
+                seq_num=event.seq_num,
+                event_type=event.event_type,
+                visibility=event.visibility,
+                target_agents=event.target_agents,
+                payload=event.payload,
+                timestamp=event.timestamp,
+            )
+            async with async_session_factory() as session:
+                session.add(record)
+                await session.commit()
+                logger.debug(
+                    "事件已持久化",
+                    event_id=event.event_id,
+                    game_id=event.game_id,
+                    seq_num=event.seq_num,
+                )
+        except Exception as e:
+            logger.error(
+                "事件持久化失败",
+                event_id=event.event_id,
+                game_id=event.game_id,
+                error=str(e),
+                exc_info=True,
+            )
+            # NOTE: 持久化失败不应阻塞事件分发，仅记录错误。
 
     def clear(self, game_id: Optional[str] = None) -> None:
         """清理内存中的事件（用于测试或对局结束）"""

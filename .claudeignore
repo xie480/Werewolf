@@ -1,0 +1,147 @@
+# Claude context ignore file — same syntax as .gitignore
+# Prevents irrelevant or large generated content from being included in analysis.
+
+# Version control
+.git/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+build/
+dist/
+target/
+*.egg-info/
+*.egg
+develop-eggs/
+eggs/
+.eggs/
+
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*.pyo
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.pyre/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+cover/
+*.cover
+*.py,cover
+coverage.xml
+nosetests.xml
+.hypothesis/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+__pypackages__/
+.python-version
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+credentials*
+*secret*
+
+# Logs
+*.log
+logs/
+pip-log.txt
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+.project
+.classpath
+.settings/
+*.swp
+*.swo
+*~
+*.sublime-*
+
+# Docker
+docker-compose.override.yml
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+db.sqlite3-journal
+
+# Archives / large generated files
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.whl
+*.iso
+
+# Lock files (usually large auto-generated content)
+*.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+poetry.lock
+Pipfile.lock
+
+# Documentation builds
+docs/_build/
+/site
+
+# C extensions
+*.so
+*.pyd
+*.dll
+*.dylib
+
+# PyInstaller
+*.manifest
+*.spec
+
+# IPython / Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Misc
+.cache/
+.webassets-cache
+instance/
+.sass-cache/
+cython_debug/
+.python-version
+.dockerignore
+.gitattributes
+
+# Frontend specific
+frontend/dist/
+frontend/node_modules/

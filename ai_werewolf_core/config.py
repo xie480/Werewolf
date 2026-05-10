@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import computed_field
+from pydantic import computed_field, field_validator
 
 class Settings(BaseSettings):
     """
@@ -49,6 +49,15 @@ class Settings(BaseSettings):
 
     # 应用基础配置
     debug: bool = False
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def coerce_debug_bool(cls, v):
+        """HACK: 系统环境可能注入非标准布尔字符串（如 'release'），
+        必须显式转换，防止 pydantic 校验失败。"""
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "1", "yes", "on")
+        return bool(v)
     
     model_config = SettingsConfigDict(
         env_file=".env", 

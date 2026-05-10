@@ -9,6 +9,7 @@ redis
 # 数据库与 ORM
 asyncpg
 sqlalchemy
+alembic
 
 # 数据校验与配置
 pydantic
