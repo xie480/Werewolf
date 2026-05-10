@@ -39,6 +39,14 @@ class Settings(BaseSettings):
         """自动拼接 Redis 连接串"""
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
     
+    # 日志与可观测性配置
+    environment: str = "dev"
+
+    # LangSmith 链路追踪（可选）
+    langsmith_api_key: str = ""
+    langsmith_project: str = "werewolf"
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+
     # 应用基础配置
     debug: bool = False
     
