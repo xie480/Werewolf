@@ -9,25 +9,55 @@
 在创建新文件或重构时，请严格遵守以下模块划分原则：
 
 ```text
-ai_werewolf_core/
-├── api/                        # 【前台收发室】只管收发前端请求和推送 WebSocket 消息，绝对不在这里跑大模型 
+Werewolf/
+├── .env                        # 全局环境变量（前后端共享或分别读取）
+├── .env.example                # 环境变量示例文件
+├── .gitignore                  # Git 忽略配置
+├── README.md                   # 项目说明文档
 │
-├── core/                       # 【铁面无私的裁判系统】这里的规则必须用代码写死，绝不让大模型自由发挥插手
-│   ├── engine/                 # 游戏进程引擎：控制“天黑请闭眼”、结算伤亡名单、判断胜负结束 
-│   ├── event/                  # 全局广播大喇叭：把“确定发生的事”（如谁死了、谁说话了）通知给所有人并记账 
-│   └── action/                 # 防作弊安检机：大模型发神经想让死人发言？想自刀？全在这里拦截并打回重做
+├── docs/                       # 📚 项目文档库
+│   ├── agent.md                # 后端架构规范
+│   ├── system/                 # 各子系统设计文档
+│   └── plan/                   # 开发计划与进度
 │
-├── agents/                     # 【AI 玩家的赛博大脑】它们在这里看局势、盘逻辑、做决定
-│   ├── graph/                  # 大脑思考工作流：LangGraph 定义的“读信息 -> 回忆 -> 盘逻辑 -> 决定”流水线
-│   ├── memory/                 # 记忆保险箱：存着大家的公屏发言，以及自己偷偷藏好的底牌、验人结果和内心小九九 
-│   └── adapter/                # 大模型翻译官：对接 OpenAI 兼容接口，顺便干点 JSON 抢救修复和断线重连的脏活 
+├── frontend/                   # 💻 【前端工程】(推荐使用 Vite + Vue3/React + TypeScript)
+│   ├── package.json            # 前端依赖管理
+│   ├── vite.config.ts          # 构建配置（可配置 proxy 代理解决跨域）
+│   ├── public/                 # 静态资源（favicon 等）
+│   └── src/
+│       ├── assets/             # 图片、全局 CSS 等资源
+│       ├── components/         # 通用 UI 组件（如：玩家头像、聊天气泡）
+│       ├── views/              # 页面级组件（如：游戏大厅、对局房间、复盘大屏）
+│       ├── store/              # 状态管理（Pinia/Redux，管理当前游戏状态、玩家信息）
+│       ├── api/                # HTTP 接口封装（调用后端的 FastAPI）
+│       ├── websocket/          # WebSocket 客户端（处理游戏事件的实时推送）
+│       ├── types/              # 前端 TypeScript 类型定义（建议与后端 schemas 保持一致）
+│       ├── utils/              # 前端工具函数
+│       ├── App.vue / App.tsx   # 前端根组件
+│       └── main.ts             # 前端入口文件
 │
-├── schemas/                    # 【全局字典】把游戏里所有阶段、角色、动作的名字钉死在这，绝不允许魔法字符串
-├── utils/                      # 【修车工具箱】结构化排错日志、AI 吐出乱码 JSON 时的强行修补工具
-│
-├── config.py                   # 【机密档案室】API Key、数据库账号等敏感配置统一下发的地方
-├── main.py                     # 【前台保安】启动 FastAPI 接口服务的入口
-└── worker.py                   # 【后台苦力】在后台默默跑那些长达几十分钟完整对局的异步进程入口
+└── ai_werewolf_core/           # 🧠 【后端工程】(严格遵循 agent.md 规范)
+    ├── requirements.txt        # 后端 Python 依赖
+    ├── main.py                 # 【前台保安】FastAPI 启动入口
+    ├── worker.py               # 【后台苦力】Celery/异步任务入口
+    ├── config.py               # 【机密档案室】配置加载
+    │
+    ├── api/                    # 【前台收发室】HTTP 路由和 WebSocket 网关
+    │   ├── routes/             # RESTful API 路由
+    │   └── ws/                 # WebSocket 连接管理
+    │
+    ├── core/                   # 【铁面无私的裁判系统】
+    │   ├── engine/             # 游戏状态机、阶段流转
+    │   ├── event/              # 事件总线、广播机制
+    │   └── action/             # 动作校验、防作弊
+    │
+    ├── agents/                 # 【AI 玩家的赛博大脑】
+    │   ├── graph/              # LangGraph 工作流
+    │   ├── memory/             # 记忆管理
+    │   └── adapter/            # LLM 接口适配器
+    │
+    ├── schemas/                # 【全局字典】Pydantic 模型、枚举类
+    └── utils/                  # 【修车工具箱】日志、JSON 修复等
 ```
 
 ## 3. 字符串非硬编码要求 (No Hardcoded Strings)

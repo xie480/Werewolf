@@ -1,0 +1,68 @@
+version: "3.9"
+
+services:
+  # ---- PostgreSQL 数据库 ----
+  db:
+    image: postgres:16-alpine
+    container_name: werewolf-db
+    environment:
+      POSTGRES_DB: werewolf
+      POSTGRES_USER: werewolf
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-werewolf}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # ---- Redis 消息队列 / 缓存 ----
+  redis:
+    image: redis:7-alpine
+    container_name: werewolf-redis
+    ports:
+      - "6379:6379"
+
+  # ---- FastAPI 后端 ----
+  backend:
+    build: ./ai_werewolf_core
+    container_name: werewolf-backend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai_werewolf_core:/app
+      - ./.env:/app/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - db
+      - redis
+
+  # ---- Celery 异步 Worker ----
+  worker:
+    build: ./ai_werewolf_core
+    container_name: werewolf-worker
+    command: celery -A worker.celery_app worker --loglevel=info
+    volumes:
+      - ./ai_werewolf_core:/app
+      - ./.env:/app/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - db
+      - redis
+
+  # ---- 前端开发服务器（Vite） ----
+  frontend:
+    image: node:20-alpine
+    container_name: werewolf-frontend
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+    environment:
+      - NODE_ENV=development
+
+volumes:
+  pgdata:
