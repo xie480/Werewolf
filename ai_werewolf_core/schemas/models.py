@@ -146,7 +146,7 @@ class Event(BaseModel):
 
     event_type: EventType
     visibility: Visibility
-    target_agents: List[str] = Field(default_factory=list)
+    target_agents: List[str] = Field(default_factory=list)  # 目标玩家id
     timestamp: datetime
     payload: dict = Field(default_factory=dict) # 事件内容
 
