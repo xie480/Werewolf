@@ -15,6 +15,7 @@ from .enums import (
     Visibility,
     GameStatus,
     EventType,
+    Emotion,
 )
 
 
@@ -75,16 +76,28 @@ class AgentAction(BaseModel):
 class SpeechContent(BaseModel):
     """发言内容协议（Speech Schema）。
 
-    不仅记录文本，还包含怀疑对象、立场和情绪标记，
-    用于后续生成“怀疑热力图”和复盘分析。
+    采用方案 A（List 拆分）：将原本模糊的自然语言立场拆分为机器可读的图谱关系——
+    `suspected_player_ids`（怀疑列表）和 `trusted_player_ids`（信任列表）。
+    `emotion` 从自由字符串升级为 [`Emotion`](ai_werewolf_core/schemas/enums.py) 枚举，
+    用于前端驱动虚拟角色表情动画和复盘分析。
+
     参考 [`Game Engine.md`](docs/system/Game%20Engine.md)。
     """
 
-    speech: str = ""    # 发言文本
-    suspects: Dict[str, float] = Field(default_factory=dict) # 对每个玩家的怀疑度, 键为 player_X, 值为 0.0-1.0
-    stance: str = ""       # 立场(怀疑谁、保护谁、认可谁)
-    emotion: str = ""   # 情绪
-    confidence: float = Field(0.0, ge=0.0, le=1.0)  # 行动可信度
+    speech: str = ""
+    """发言的具体文本内容。"""
+
+    suspected_player_ids: List[str] = Field(default_factory=list)
+    """发言中明确怀疑或踩的玩家 ID 列表，如 `["player_3", "player_7"]`。"""
+
+    trusted_player_ids: List[str] = Field(default_factory=list)
+    """发言中明确信任或保护的玩家 ID 列表，如 `["player_5"]`。"""
+
+    emotion: Emotion = Emotion.NEUTRAL
+    """发言时的主要情绪表现，严格限定枚举值，禁止 LLM 自由输出。"""
+
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    """发言内容的整体确信度。"""
 
 
 class VoteContent(BaseModel):

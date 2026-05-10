@@ -125,6 +125,39 @@ class Visibility(str, Enum):
     FACTION = "FACTION"
 
 
+class Emotion(str, Enum):
+    """发言情绪枚举。
+
+    限定了 AI 玩家在发言时能表达的情绪状态，用于前端驱动虚拟角色表情动画，
+    并为复盘分析提供结构化的情绪数据。绝对禁止 LLM 自由输出任意情绪字符串。
+    覆盖狼人杀对局中从强势带节奏到无奈表水的完整情绪光谱。
+    """
+
+    # --- 基础情绪 ---
+    NEUTRAL = "NEUTRAL"                 # 平静/中立（默认状态）
+    CONFUSED = "CONFUSED"               # 疑惑/迷茫（闭眼村民常见）
+
+    # --- 正面/自信类 ---
+    CONFIDENT = "CONFIDENT"             # 自信/笃定（预言家报查验、强神跳身份）
+    RELIEVED = "RELIEVED"               # 如释重负（危机解除、被救活）
+    SELF_RIGHTEOUS = "SELF_RIGHTEOUS"   # 义正言辞（强神立威、真预言家正气）
+
+    # --- 防御/弱势类 ---
+    ANXIOUS = "ANXIOUS"                 # 焦虑/紧张（被污蔑、即将被归票）
+    DEFENSIVE = "DEFENSIVE"             # 防御性/委屈（表水、被踩后的解释）
+    HESITANT = "HESITANT"               # 犹豫/摇摆（投票不确定、分不清真假预言家）
+
+    # --- 攻击/强势类 ---
+    AGGRESSIVE = "AGGRESSIVE"           # 攻击性/强势（带节奏、踩人、归票）
+    PROVOCATIVE = "PROVOCATIVE"         # 挑衅/煽动（狼人煽风点火、激将法）
+
+    # --- 应激/极端类 ---
+    SUSPICIOUS = "SUSPICIOUS"           # 怀疑/猜忌（质问他人、指出矛盾）
+    ANGRY = "ANGRY"                     # 愤怒（被严重污蔑或背叛时的激烈反应）
+    SURPRISED = "SURPRISED"             # 惊讶（预言家验出意外结果、女巫救人等反转）
+    DESPERATE = "DESPERATE"             # 绝望/拼命（最后一搏、遗言、被归票时的无力感）
+
+
 class Faction(str, Enum):
     """阵营枚举。
 

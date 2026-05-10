@@ -12,6 +12,7 @@ from .enums import (
     EventType,
     Visibility,
     Faction,
+    Emotion,
 )
 from .models import (
     Player,
@@ -31,6 +32,7 @@ __all__ = [
     "EventType",
     "Visibility",
     "Faction",
+    "Emotion",
     # 模型
     "Player",
     "AgentAction",
