@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/unit/core/engine/ -v)",
+      "Bash(python -m pytest tests/unit/core/engine/test_lifecycle.py -v --tb=short)"
+    ]
+  }
+}
