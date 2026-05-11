@@ -22,7 +22,10 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
-from ai_werewolf_core.core.engine.exceptions import InvalidTransitionError
+from ai_werewolf_core.core.engine.exceptions import (
+    ActionValidationError,
+    ResolverError,
+)
 from ai_werewolf_core.core.engine.roles.base import BaseRole
 from ai_werewolf_core.core.engine.roles.witch import WitchRole
 from ai_werewolf_core.core.event.bus import EventBus
@@ -38,48 +41,6 @@ from ai_werewolf_core.schemas.models import AgentAction, Event
 from ai_werewolf_core.utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-
-# ------------------------------------------------------------------
-# 行动校验异常
-# ------------------------------------------------------------------
-
-
-class ActionValidationError(Exception):
-    """行动校验失败异常。
-
-    当 Agent 提交的动作未通过 Role System 的合法性校验时抛出。
-    调用方（如 API 层）应捕获此异常并向 Agent 返回明确的拒绝原因。
-
-    Attributes:
-        action: 被拒绝的原始动作。
-        reason: 拒绝原因描述。
-    """
-
-    def __init__(self, action: AgentAction, reason: str) -> None:
-        self.action = action
-        self.reason = reason
-        super().__init__(
-            f"行动校验失败 [actor={action.actor_id}, "
-            f"action={action.action_type.value}]: {reason}"
-        )
-
-
-class ResolverError(Exception):
-    """结算器内部异常。
-
-    当结算过程中出现不可恢复的逻辑错误（如尝试结算未开始的对局、
-    重复结算同一夜晚等）时抛出。
-
-    Attributes:
-        game_id: 对局 ID。
-        message: 错误描述。
-    """
-
-    def __init__(self, game_id: str, message: str) -> None:
-        self.game_id = game_id
-        self.message = message
-        super().__init__(f"结算器错误 [game={game_id}]: {message}")
 
 
 # ------------------------------------------------------------------

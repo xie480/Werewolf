@@ -70,3 +70,44 @@ class GameNotRunnableError(Exception):
                 f"仅当状态为 [{GameStatus.RUNNING}] 时才能推进阶段。"
             )
         super().__init__(message)
+
+
+class ActionValidationError(Exception):
+    """行动校验失败异常。
+
+    当 Agent 提交的动作未通过 Role System 或 Manager 的合法性校验时抛出。
+    调用方（如 API 层）应捕获此异常并向 Agent 返回明确的拒绝原因。
+
+    **Why (统一异常类)**: 将行动校验失败统一为一个异常类型，
+    避免 VoteManager、SpecialActionResolver、ActionResolver 各自定义
+    不同异常导致上层需要处理多种异常类型。
+
+    Attributes:
+        action: 被拒绝的原始动作。
+        reason: 拒绝原因描述。
+    """
+
+    def __init__(self, action: "AgentAction", reason: str) -> None:
+        self.action = action
+        self.reason = reason
+        super().__init__(
+            f"行动校验失败 [actor={action.actor_id}, "
+            f"action={action.action_type.value}]: {reason}"
+        )
+
+
+class ResolverError(Exception):
+    """结算器内部异常。
+
+    当结算过程中出现不可恢复的逻辑错误（如尝试结算未开始的对局、
+    重复结算同一夜晚等）时抛出。
+
+    Attributes:
+        game_id: 对局 ID。
+        message: 错误描述。
+    """
+
+    def __init__(self, game_id: str, message: str) -> None:
+        self.game_id = game_id
+        self.message = message
+        super().__init__(f"结算器错误 [game={game_id}]: {message}")
