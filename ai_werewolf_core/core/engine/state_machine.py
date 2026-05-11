@@ -18,19 +18,21 @@ Game Engine 阶段状态机 (Phase State Machine) 模块 —— 基于 Redis Has
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 import redis.asyncio as aioredis
 
-from ai_werewolf_core.constants import RedisKeys
+from ai_werewolf_core.constant.redis_keys import RedisKeys
 from ai_werewolf_core.core.engine.exceptions import InvalidTransitionError
 from ai_werewolf_core.core.event.bus import EventBus
 from ai_werewolf_core.schemas.enums import EventType, GamePhase, Visibility
 from ai_werewolf_core.schemas.models import Event
 from ai_werewolf_core.utils.logger import bind_game_context, get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
+from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
 from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
 
 logger = get_logger(__name__)
@@ -326,21 +328,40 @@ class PhaseStateMachine:
         old_phase: Optional[GamePhase] = current_ctx[CTX_FIELD_PHASE]
         current_round: int = current_ctx[CTX_FIELD_ROUND]
 
-        # 2. 校验迁移合法性
-        allowed = self.VALID_TRANSITIONS.get(old_phase, [])
-        if next_phase not in allowed:
-            raise InvalidTransitionError(
-                current_state=old_phase,
-                target_state=next_phase,
-            )
-
-        # 3. 计算新轮次
+        # 2. 计算新轮次
         new_round = current_round
         if next_phase == GamePhase.NIGHT_START:
             new_round += 1
 
-        # 4. 保存新状态到 Redis —— 必须先成功才能发布事件
-        await self._save_context(next_phase, new_round)
+        # 3. 原子阶段迁移（Lua 脚本：加载→校验→更新 一次完成）
+        # 将 VALID_TRANSITIONS 序列化为 JSON 传入 Lua，Python 侧保持权威来源
+        transitions_json = json.dumps({
+            str(k.value) if k else "None": [str(v.value) for v in vals]
+            for k, vals in self.VALID_TRANSITIONS.items()
+        })
+        old_phase_str = old_phase.value if old_phase else "None"
+        next_phase_str = next_phase.value
+
+        result = await LuaScriptManager.evalsha(
+            "phase_transition",
+            keys=[self._context_key()],
+            args=[old_phase_str, next_phase_str, str(new_round), transitions_json],
+        )
+        status = result[0]
+        actual_old = result[1] if len(result) > 1 else old_phase_str
+
+        if status == "PHASE_MISMATCH":
+            current_from_redis = GamePhase(actual_old) if actual_old != "None" else None
+            raise InvalidTransitionError(
+                current_state=current_from_redis,
+                target_state=next_phase,
+            )
+        elif status == "INVALID_TRANSITION":
+            raise InvalidTransitionError(
+                current_state=old_phase,
+                target_state=next_phase,
+            )
+        # status == "OK": 迁移成功，继续后续流程
 
         # 5. 记录日志
         logger.info(

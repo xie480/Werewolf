@@ -31,7 +31,7 @@ from sqlalchemy import select, and_
 
 from ai_werewolf_core.schemas.models import Event
 from ai_werewolf_core.schemas.enums import EventType, Visibility
-from ai_werewolf_core.constants import RedisKeys
+from ai_werewolf_core.constant.redis_keys import RedisKeys
 
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.snowflake import get_snowflake

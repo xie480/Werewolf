@@ -140,3 +140,6 @@ cython_debug/
 *.swp
 *.swo
 *~
+
+.claude/*
+.claude/

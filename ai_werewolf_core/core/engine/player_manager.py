@@ -39,7 +39,7 @@ import redis.asyncio as aioredis
 from sqlalchemy import update
 
 from ai_werewolf_core.config import settings
-from ai_werewolf_core.constants import RedisKeys
+from ai_werewolf_core.constant.redis_keys import RedisKeys
 from ai_werewolf_core.db.models import PlayerRecord
 from ai_werewolf_core.db.session import async_session_factory
 from ai_werewolf_core.schemas.enums import Faction, Role

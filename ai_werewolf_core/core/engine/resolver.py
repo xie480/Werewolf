@@ -39,7 +39,7 @@ from ai_werewolf_core.schemas.enums import (
 )
 from ai_werewolf_core.schemas.models import AgentAction, Event
 from ai_werewolf_core.utils.logger import get_logger
-from ai_werewolf_core.utils.player_status import PlayerStatusManager
+from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
 
 logger = get_logger(__name__)
 

@@ -19,6 +19,7 @@ Game Engine 生命周期管理器 (Lifecycle Manager) 模块 —— Write-Throug
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -27,7 +28,7 @@ import redis.asyncio as aioredis
 from sqlalchemy import update
 
 from ai_werewolf_core.config import settings
-from ai_werewolf_core.constants import RedisKeys
+from ai_werewolf_core.constant.redis_keys import RedisKeys
 from ai_werewolf_core.core.engine.exceptions import (
     GameNotRunnableError,
     InvalidTransitionError,
@@ -49,6 +50,7 @@ from ai_werewolf_core.utils.logger import (
     get_logger,
 )
 from ai_werewolf_core.utils.redis_client import RedisClientManager
+from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
 from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
 
 logger = get_logger(__name__)
@@ -285,13 +287,16 @@ class LifecycleManager:
 
     async def _set_status(self, new_status: GameStatus) -> None:
         """
-        内部原子操作：校验 → Write-Through (Redis + DB) → 日志 → 发布事件。
+        内部原子操作：校验 → Write-Through (Redis Lua + DB) → 日志 → 发布事件。
+
+        **原子性改进**:
+        使用 Lua 脚本 ``status_transition.lua`` 将"读取当前状态 →
+        校验迁移合法性 → 写入 Redis"三步合并为单次原子操作，
+        消除多 Worker 并发下的竞态条件。
 
         **Write-Through 策略**:
-        1. 从 Redis 读取当前状态
-        2. 校验迁移合法性
-        3. 写 Redis（缓存层优先）
-        4. 同步写 DB（持久层）
+        1. 通过 Lua 脚本原子校验并更新 Redis（缓存层优先）
+        2. Lua 成功后同步写 DB（持久层）
 
         Args:
             new_status: 目标全局状态。
@@ -300,22 +305,44 @@ class LifecycleManager:
             InvalidTransitionError: 校验失败。
             RedisUnavailableException: Redis 不可用。
         """
-        # 1. 读取当前状态
+        # 1. 确定当前状态（先读取，作为 expected 值传入 Lua）
         current = await self._get_status_from_redis()
         if current is None:
             current = GameStatus.INIT
 
-        # 2. 校验合法性
-        self._validate_status_transition(current, new_status)
+        # 2. 原子校验+更新 Redis（Lua 脚本：读取→校验→写入 一次完成）
+        # 将 VALID_STATUS_TRANSITIONS 序列化为 JSON 传入 Lua
+        transitions_json = json.dumps({
+            k.value: [v.value for v in vals]
+            for k, vals in self.VALID_STATUS_TRANSITIONS.items()
+        })
+
+        result = await LuaScriptManager.evalsha(
+            "status_transition",
+            keys=[self._context_key()],
+            args=[current.value, new_status.value, transitions_json],
+        )
+        status = result[0]
+        actual_old_str = result[1] if len(result) > 1 else current.value
+
+        if status == "STATUS_MISMATCH":
+            actual_old = GameStatus(actual_old_str)
+            raise InvalidTransitionError(
+                current_state=actual_old,
+                target_state=new_status,
+            )
+        elif status == "INVALID_TRANSITION":
+            raise InvalidTransitionError(
+                current_state=current,
+                target_state=new_status,
+            )
+        # status == "OK": Lua 迁移成功
         old_status = current
 
-        # 3. Write-Through: 更新 Redis
-        await self._set_status_to_redis(new_status)
-
-        # 4. Write-Through: 同步更新 DB
+        # 3. Write-Through: 同步更新 DB
         await self._set_status_to_db(new_status)
 
-        # 5. 日志
+        # 4. 日志
         logger.info(
             "lifecycle_status_changed",
             game_id=self.game_id,
@@ -323,7 +350,7 @@ class LifecycleManager:
             new_status=new_status.value,
         )
 
-        # 6. 发布事件
+        # 5. 发布事件
         await self._publish_status_change(old_status, new_status)
 
     # ------------------------------------------------------------------

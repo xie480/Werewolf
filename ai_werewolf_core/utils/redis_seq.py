@@ -42,7 +42,7 @@ from typing import Optional
 
 import redis.asyncio as aioredis
 
-from ai_werewolf_core.constants import RedisKeys
+from ai_werewolf_core.constant.redis_keys import RedisKeys
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
 

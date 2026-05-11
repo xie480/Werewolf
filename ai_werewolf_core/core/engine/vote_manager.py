@@ -37,15 +37,16 @@ from typing import Dict, List, Optional
 
 import redis.asyncio as aioredis
 
-from ai_werewolf_core.constants import RedisKeys
+from ai_werewolf_core.constant.redis_keys import RedisKeys
 from ai_werewolf_core.core.event.bus import EventBus
 from ai_werewolf_core.core.engine.exceptions import ActionValidationError
 from ai_werewolf_core.core.engine.roles.base import BaseRole
 from ai_werewolf_core.schemas.enums import ActionType, EventType, GamePhase, Visibility
 from ai_werewolf_core.schemas.models import AgentAction, Event
 from ai_werewolf_core.utils.logger import get_logger
-from ai_werewolf_core.utils.player_status import PlayerStatusManager
+from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
 from ai_werewolf_core.utils.redis_client import RedisClientManager
+from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
 from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
 
 logger = get_logger(__name__)
@@ -204,10 +205,10 @@ class VoteManager:
     # ------------------------------------------------------------------
 
     async def _redis_hset(self, field: str, value: str) -> None:
-        """执行 HSET 操作（带重试）。
+        """执行原子 HSET + EXPIRE 操作（带重试）。
 
-        **Why**: 投票数据的一致性至关重要，Redis 不可用时必须拒绝操作，
-        不允许降级。使用指数退避重试策略应对瞬时网络抖动。
+        使用 Lua 脚本 ``hset_with_ttl.lua`` 将 HSET 和 EXPIRE 合并为
+        单次原子操作，防止进程在两条命令之间崩溃导致 Key 永不过期。
 
         Args:
             field: Hash field (voter_id)。
@@ -217,17 +218,18 @@ class VoteManager:
             RedisUnavailableException: 重试耗尽后 Redis 仍不可用。
         """
         key = self._vote_key()
-        redis = await self._get_redis()
 
         for attempt in range(1, RETRY_COUNT + 1):
             try:
-                await redis.hset(key, field, value)
-                # 设置 TTL（每次 HSET 都刷新，确保过期时间正确）
-                await redis.expire(key, VOTE_TTL_SEC)
+                await LuaScriptManager.evalsha(
+                    "hset_with_ttl",
+                    keys=[key],
+                    args=[field, value, str(VOTE_TTL_SEC)],
+                )
                 return
             except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
                 self._logger.warning(
-                    "Redis HSET 连接异常，重试中",
+                    "Redis Lua HSET+TTL 连接异常，重试中",
                     key=key,
                     field=field,
                     attempt=attempt,
@@ -241,16 +243,16 @@ class VoteManager:
                         f"投票记录失败: game_id={self.game_id}, "
                         f"voter={field}, 重试 {RETRY_COUNT} 次后 Redis 仍不可用"
                     ) from e
-            except aioredis.ResponseError as e:
+            except Exception as e:
                 self._logger.error(
-                    "Redis HSET 响应异常",
+                    "Redis Lua 脚本执行异常",
                     key=key,
                     field=field,
                     error=str(e),
                     exc_info=True,
                 )
                 raise RedisUnavailableException(
-                    f"Redis 返回错误响应: {e}"
+                    f"Redis Lua 脚本执行失败: {e}"
                 ) from e
 
     async def _redis_hgetall(self) -> Dict[str, str]:
@@ -463,13 +465,15 @@ class VoteManager:
                     f"不可投给 [{action.target_id}]",
                 )
 
-        # ── 记录选票到 Redis Hash（原子覆盖模式） ──
+        # ── 记录选票到 Redis Hash（原子检测+写入+TTL） ──
         target_value = action.target_id or ""  # 空字符串表示弃权
         try:
-            # 检查是否覆盖已有投票（用于日志）
-            had_previous = await self._redis_hexists(voter_id)
-            await self._redis_hset(voter_id, target_value)
-
+            result = await LuaScriptManager.evalsha(
+                "vote_submit",
+                keys=[key],
+                args=[voter_id, target_value, str(VOTE_TTL_SEC)],
+            )
+            had_previous = bool(result[0])
             if had_previous:
                 self._logger.info(
                     "vote_updated",
