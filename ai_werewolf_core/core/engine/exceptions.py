@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ai_werewolf_core.schemas.enums import GamePhase, GameStatus
+from ai_werewolf_core.schemas.models import AgentAction
 
 
 class InvalidTransitionError(Exception):
@@ -87,7 +88,7 @@ class ActionValidationError(Exception):
         reason: 拒绝原因描述。
     """
 
-    def __init__(self, action: "AgentAction", reason: str) -> None:
+    def __init__(self, action: AgentAction, reason: str) -> None:
         self.action = action
         self.reason = reason
         super().__init__(
