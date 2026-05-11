@@ -33,7 +33,7 @@ class GameRecord(Base):
     __tablename__ = "games"
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, index=True, comment="对局全局唯一ID"
+        String(19), primary_key=True, index=True, comment="雪花算法全局唯一ID"
     )
     status: Mapped[GameStatus] = mapped_column(
         SQLEnum(GameStatus), default=GameStatus.INIT, comment="对局状态"
@@ -69,7 +69,7 @@ class PlayerRecord(Base):
     __tablename__ = "players"
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, index=True, comment="主键ID"
+        String(19), primary_key=True, index=True, comment="雪花算法全局唯一ID"
     )
     game_id: Mapped[str] = mapped_column(
         String(36),
@@ -106,7 +106,7 @@ class EventRecord(Base):
     __tablename__ = "events"
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, index=True, comment="主键ID"
+        String(19), primary_key=True, index=True, comment="雪花算法全局唯一ID"
     )
     event_id: Mapped[str] = mapped_column(
         String(64), unique=True, index=True, comment="事件业务ID"

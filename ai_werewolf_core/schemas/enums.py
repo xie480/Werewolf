@@ -110,7 +110,7 @@ class EventType(str, Enum):
     VOTE_EVENT = "VOTE_EVENT"                           # 投票事件
     PHASE_TRANSITION_EVENT = "PHASE_TRANSITION_EVENT"   # 阶段切换
     PRIVATE_RESOLUTION_EVENT = "PRIVATE_RESOLUTION_EVENT"  # 私密结算（如验人结果）
-    SYSTEM_ANNOUNCEMENT = "SYSTEM_ANNOUNCEMENT"         # 系统公告（天亮、死亡名单）
+    SYSTEM_ANNOUNCEMENT = "SYSTEM_ANNOUNCEMENT"         # 系统公告（天亮）
     PLAYER_DEATH = "PLAYER_DEATH"                       # 玩家死亡通知
     GAME_OVER_EVENT = "GAME_OVER_EVENT"                 # 游戏结束
 

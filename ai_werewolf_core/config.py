@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # 应用基础配置
     debug: bool = False
 
+    # 雪花算法配置
+    snowflake_datacenter_id: int = 1       # 数据中心 ID (0-31)，根据实际部署环境调整
+    snowflake_worker_id: int = 1           # 工作节点 ID (0-31)，每个节点/进程需唯一
+
     @field_validator("debug", mode="before")
     @classmethod
     def coerce_debug_bool(cls, v):

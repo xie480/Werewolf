@@ -426,7 +426,7 @@ class VoteManager:
     ) -> None:
         """发布投票结算事件。
 
-        **Why**: 投票结果对所有玩家公开，以 ``SYSTEM_ANNOUNCEMENT`` 类型
+        **Why**: 投票结果对所有玩家公开，以 ``VOTE_EVENT`` 类型
         发布，payload 包含完整的计票信息供前端展示和复盘分析。
 
         Args:
@@ -439,7 +439,7 @@ class VoteManager:
             event_id=str(uuid.uuid4()),
             game_id=self.game_id,
             seq_num=0,
-            event_type=EventType.SYSTEM_ANNOUNCEMENT,
+            event_type=EventType.VOTE_EVENT,
             visibility=Visibility.PUBLIC,
             target_agents=[],
             timestamp=datetime.now(timezone.utc),
