@@ -39,6 +39,7 @@ from ai_werewolf_core.schemas.enums import (
 )
 from ai_werewolf_core.schemas.models import AgentAction, Event
 from ai_werewolf_core.utils.logger import get_logger
+from ai_werewolf_core.utils.player_status import PlayerStatusManager
 
 logger = get_logger(__name__)
 
@@ -114,6 +115,9 @@ class SpecialActionResolver:
         self.event_bus: EventBus = event_bus
         self.hunter_has_shot: bool = False
         """标记猎人是否已在本局使用过开枪技能，防止重复触发。"""
+
+        self._player_status: PlayerStatusManager = PlayerStatusManager()
+        """玩家状态缓存管理器，用于同步更新 Redis BitMap。"""
 
         self._logger = logger.bind(
             game_id=self.game_id, module="SpecialActionResolver"
@@ -261,6 +265,10 @@ class SpecialActionResolver:
 
         # ── 执行死亡 ──
         target_role.die()
+        # 同步更新 Redis BitMap 存活状态——多 Worker 一致性要求
+        await self._player_status.mark_dead(
+            self.game_id, target_id, target_role.seat_number
+        )
         self.hunter_has_shot = True
 
         self._logger.info(

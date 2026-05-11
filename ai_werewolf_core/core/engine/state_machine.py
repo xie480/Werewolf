@@ -1,35 +1,60 @@
 """
-Game Engine 阶段状态机 (Phase State Machine) 模块。
+Game Engine 阶段状态机 (Phase State Machine) 模块 —— 基于 Redis Hash 的无状态设计。
 
 **Why**: 本模块是游戏引擎的核心骨架，负责硬编码管理狼人杀对局内各阶段的
 严格流转。所有状态迁移路径必须在 :attr:`PhaseStateMachine.VALID_TRANSITIONS`
-中预先定义为有向图，杜绝 LLM 或任何外部输入决定状态流转。每次迁移都
-经过合法性校验、结构化日志记录并通过 EventBus 广播事件。
+中预先定义为有向图，杜绝 LLM 或任何外部输入决定状态流转。
+
+**Redis 上下文存储**:
+    阶段和轮次状态不再保存在实例变量中，而是写入 Redis Hash:
+    - Key: ``werewolf:game:{game_id}:context``
+    - Fields: ``phase`` (当前阶段), ``round`` (当前轮次)
+
+    这确保多 Worker 进程共享同一份状态，任意进程都可以读取和更新阶段信息。
 
 参考: :doc:`docs/plan/状态机与生命周期设计`
 """
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+import redis.asyncio as aioredis
+
+from ai_werewolf_core.constants import RedisKeys
 from ai_werewolf_core.core.engine.exceptions import InvalidTransitionError
 from ai_werewolf_core.core.event.bus import EventBus
 from ai_werewolf_core.schemas.enums import EventType, GamePhase, Visibility
 from ai_werewolf_core.schemas.models import Event
 from ai_werewolf_core.utils.logger import bind_game_context, get_logger
+from ai_werewolf_core.utils.redis_client import RedisClientManager
+from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
 
 logger = get_logger(__name__)
+
+# ============================================================================
+# 常量定义
+# ============================================================================
+
+# Redis 操作重试配置
+RETRY_COUNT: int = 3
+RETRY_DELAY_SEC: float = 0.1
+
+# Redis Hash 字段名
+CTX_FIELD_PHASE: str = "phase"
+CTX_FIELD_ROUND: str = "round"
 
 
 class PhaseStateMachine:
     """
-    游戏对局阶段状态机。
+    游戏对局阶段状态机 —— 基于 Redis Hash 的无状态设计。
 
-    持有当前阶段与回合数，强制校验每一次阶段迁移的合法性，
-    在迁移成功时通过 EventBus 广播 ``PHASE_TRANSITION_EVENT`` 事件。
+    持有对局唯一标识和事件总线引用，但不再在实例变量中保存
+    ``current_phase`` 和 ``round``。这些状态存储在 Redis Hash 中，
+    确保多 Worker 进程共享同一份权威状态。
 
     **Why**: 狼人杀对局有严格的时序逻辑（天黑→夜间行动→结算→天亮→
     讨论→投票→遗言→检查胜负），任何跳步或逆序都会导致游戏逻辑崩溃。
@@ -43,7 +68,7 @@ class PhaseStateMachine:
     VALID_TRANSITIONS: dict[Optional[GamePhase], list[GamePhase | None]] = {
         None: [GamePhase.INIT],
         GamePhase.INIT: [GamePhase.NIGHT_START],
-        
+
         # 夜晚阶段
         GamePhase.NIGHT_START: [GamePhase.NIGHT_WOLF_ACT],
         GamePhase.NIGHT_WOLF_ACT: [GamePhase.NIGHT_WITCH_ACT],
@@ -52,7 +77,7 @@ class PhaseStateMachine:
         GamePhase.NIGHT_RESOLVE: [
             GamePhase.DAY_START
         ],
-        
+
         # 白天阶段
         GamePhase.DAY_START: [
             GamePhase.DAY_DISCUSSION,# 正常进入讨论
@@ -65,7 +90,7 @@ class PhaseStateMachine:
             GamePhase.VOTE_RESOLVE,
             GamePhase.DAY_PK_DISCUSSION
         ],
-        
+
         # 投票结算
         GamePhase.VOTE_RESOLVE: [
             GamePhase.HUNTER_SHOOT,  # 猎人被票出局
@@ -73,13 +98,13 @@ class PhaseStateMachine:
             GamePhase.NIGHT_START,   # 平安日，无人出局，直接天黑
             GamePhase.GAME_OVER,     # 投票后游戏结束
         ],
-        
+
         # PK 阶段
         GamePhase.DAY_PK_DISCUSSION: [GamePhase.DAY_PK_VOTE],
         GamePhase.DAY_PK_VOTE: [
             GamePhase.VOTE_RESOLVE
         ],
-        
+
         # 特殊结算阶段
         GamePhase.HUNTER_SHOOT: [
             GamePhase.LAST_WORDS,    # 开枪后发表遗言
@@ -90,25 +115,13 @@ class PhaseStateMachine:
             GamePhase.DAY_DISCUSSION,# 首夜死亡遗言后，进入白天讨论
             GamePhase.NIGHT_START,   # 白天被票遗言后，进入夜晚
         ],
-        
+
         # 游戏结束
         GamePhase.GAME_OVER: [
             GamePhase.INIT,          # 再来一局
             None                     # 彻底结束
         ],
     }
-
-    """
-    合法阶段迁移映射表（有向图）。
-
-    **Why**: 这是整个游戏时序逻辑的唯一权威数据源。键为当前阶段，
-    值为允许跳转到的目标阶段列表。``None`` 作为键表示初始状态
-    （游戏尚未开始），``None`` 作为值表示游戏彻底结束。
-
-    注意: 状态机只负责校验迁移路径的合法性，不负责选择分支路径。
-    调用方（Game Engine）根据游戏规则（如是否有 PK、是否猎人死亡等）
-    从合法目标中选择具体的下一个阶段并通过 ``transition_to`` 传入。
-    """
 
     def __init__(self, game_id: str, event_bus: EventBus) -> None:
         """
@@ -118,30 +131,168 @@ class PhaseStateMachine:
             game_id: 对局唯一标识，用于日志追踪和事件路由。
             event_bus: 事件总线实例。阶段变更时将发布事件以驱动
                 Agent Runtime、前端推送等下游模块。
-
-        :ivar current_phase: 当前所处游戏阶段，初始为 ``None``。
-        :ivar round: 当前轮次，初始为 ``0``。进入 NIGHT_START 时递增。
         """
         self.game_id: str = game_id
         self.event_bus: EventBus = event_bus
-        self._current_phase: Optional[GamePhase] = None
-        self._round: int = 0
+
+        # Redis 客户端 (懒初始化，共享连接池)
+        self._redis: Optional[aioredis.Redis] = None
+
+        self._logger = logger.bind(game_id=self.game_id, module="PhaseStateMachine")
+
+    # ------------------------------------------------------------------
+    # Redis 客户端懒初始化
+    # ------------------------------------------------------------------
+
+    async def _get_redis(self) -> aioredis.Redis:
+        """获取 Redis 异步客户端（懒初始化，共享连接池）。"""
+        if self._redis is None:
+            try:
+                self._redis = await RedisClientManager.get_client()
+                self._logger.debug("PhaseStateMachine 已获取共享 Redis 客户端")
+            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+                raise RedisUnavailableException(
+                    f"PhaseStateMachine 无法获取 Redis 客户端: game_id={self.game_id}"
+                ) from e
+        return self._redis
+
+    # ------------------------------------------------------------------
+    # Redis 上下文读写
+    # ------------------------------------------------------------------
+
+    def _context_key(self) -> str:
+        """构建对局上下文 Redis Hash Key。"""
+        return RedisKeys.game_context(self.game_id)
+
+    async def _load_context(self) -> dict:
+        """从 Redis 加载当前对局上下文。
+
+        Returns:
+            包含 ``phase`` 和 ``round`` 的字典。
+            Key 不存在时返回初始值 ``{"phase": None, "round": 0}``。
+        """
+        key = self._context_key()
+        try:
+            redis = await self._get_redis()
+            raw = await redis.hgetall(key)
+            if not raw:
+                return {CTX_FIELD_PHASE: None, CTX_FIELD_ROUND: 0}
+
+            phase_str = raw.get(CTX_FIELD_PHASE)
+            round_str = raw.get(CTX_FIELD_ROUND, "0")
+
+            return {
+                CTX_FIELD_PHASE: GamePhase(phase_str) if phase_str and phase_str != "None" else None,
+                CTX_FIELD_ROUND: int(round_str),
+            }
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            self._logger.error("加载对局上下文失败", error=str(e), exc_info=True)
+            raise RedisUnavailableException(
+                f"无法加载对局上下文: game_id={self.game_id}"
+            ) from e
+
+    async def _save_context(self, phase: Optional[GamePhase], round_num: int) -> None:
+        """保存当前对局上下文到 Redis。
+
+        Args:
+            phase: 当前游戏阶段（None 表示尚未开始）。
+            round_num: 当前轮次。
+
+        Raises:
+            RedisUnavailableException: Redis 不可用。
+        """
+        key = self._context_key()
+        phase_value = phase.value if phase else "None"
+
+        for attempt in range(1, RETRY_COUNT + 1):
+            try:
+                redis = await self._get_redis()
+                await redis.hset(key, mapping={
+                    CTX_FIELD_PHASE: phase_value,
+                    CTX_FIELD_ROUND: str(round_num),
+                })
+                self._logger.debug(
+                    "context_saved",
+                    phase=phase_value,
+                    round=round_num,
+                )
+                return
+            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+                self._logger.warning(
+                    "保存对局上下文失败，重试中",
+                    attempt=attempt,
+                    error=str(e),
+                )
+                if attempt < RETRY_COUNT:
+                    await asyncio.sleep(RETRY_DELAY_SEC * attempt)
+                else:
+                    raise RedisUnavailableException(
+                        f"无法保存对局上下文: game_id={self.game_id}"
+                    ) from e
+            except aioredis.ResponseError as e:
+                raise RedisUnavailableException(
+                    f"Redis 返回错误响应: {e}"
+                ) from e
+
+    async def init_context(self) -> None:
+        """初始化对局上下文到 Redis（首次对局时由 LifecycleManager 调用）。
+
+        设置 phase=None, round=0 作为初始状态。
+        """
+        await self._save_context(None, 0)
+        self._logger.info("context_initialized")
+
+    # ------------------------------------------------------------------
+    # 阶段查询属性
+    # ------------------------------------------------------------------
 
     @property
-    def current_phase(self) -> Optional[GamePhase]:
-        """当前所处的游戏阶段 (:class:`GamePhase`)，可能为 ``None`` 表示尚未开始。"""
-        return self._current_phase
+    async def current_phase(self) -> Optional[GamePhase]:
+        """当前所处的游戏阶段 (:class:`GamePhase`)，可能为 ``None`` 表示尚未开始。
+
+        **Why 异步属性**: 需要从 Redis 加载状态，因此使用 ``async def`` 模式。
+        注意：Python 原生不支持 async property，这里采用方法签名的文档约定。
+        实际调用需使用 ``await state_machine.current_phase``。
+        """
+        ctx = await self._load_context()
+        return ctx[CTX_FIELD_PHASE]
 
     @property
-    def round(self) -> int:
-        """当前轮次，从 0 开始。进入 :attr:`GamePhase.NIGHT_START` 时自增。"""
-        return self._round
+    async def round(self) -> int:
+        """当前轮次，从 0 开始。进入 :attr:`GamePhase.NIGHT_START` 时自增。
+
+        **Why 异步属性**: 同 :meth:`current_phase`，需从 Redis 加载。
+        """
+        ctx = await self._load_context()
+        return ctx[CTX_FIELD_ROUND]
+
+    async def get_current_phase(self) -> Optional[GamePhase]:
+        """获取当前游戏阶段（显式 async 方法）。
+
+        Returns:
+            当前 :class:`GamePhase` 或 ``None``。
+        """
+        ctx = await self._load_context()
+        return ctx[CTX_FIELD_PHASE]
+
+    async def get_round(self) -> int:
+        """获取当前轮次（显式 async 方法）。
+
+        Returns:
+            当前轮次数。
+        """
+        ctx = await self._load_context()
+        return ctx[CTX_FIELD_ROUND]
+
+    # ------------------------------------------------------------------
+    # 阶段迁移
+    # ------------------------------------------------------------------
 
     async def transition_to(
         self, next_phase: GamePhase, context: Optional[dict] = None
     ) -> None:
         """
-        执行阶段迁移：校验 -> 更新状态 -> 记录日志 -> 发布事件。
+        执行阶段迁移：校验 -> 更新 Redis -> 记录日志 -> 发布事件。
 
         **合法性校验**:
         根据 :attr:`VALID_TRANSITIONS` 判断 ``next_phase`` 是否是当前阶段的
@@ -150,6 +301,10 @@ class PhaseStateMachine:
         **轮次递增**:
         当目标阶段为 :attr:`GamePhase.NIGHT_START` 时，轮次自增 1。
         这标记着新的"天黑-天亮"循环开始。
+
+        **原子性保证**:
+        Phase 迁移成功 = Redis HSET 成功 + EventBus publish 成功。
+        如果 Redis 写入失败，整个迁移中止并抛出异常，阻止状态不一致。
 
         **事件发布**:
         以 :attr:`EventType.PHASE_TRANSITION_EVENT` 类型、:attr:`Visibility.PUBLIC`
@@ -164,65 +319,70 @@ class PhaseStateMachine:
         Raises:
             InvalidTransitionError: 当前阶段到 ``next_phase`` 的迁移路径
                 不在 :attr:`VALID_TRANSITIONS` 定义中。
+            RedisUnavailableException: Redis 不可用，无法保存新状态。
         """
-        # 获取当前阶段允许切换的下一个阶段
-        allowed = self.VALID_TRANSITIONS.get(self._current_phase, [])
-        # 校验目标阶段
+        # 1. 加载当前状态
+        current_ctx = await self._load_context()
+        old_phase: Optional[GamePhase] = current_ctx[CTX_FIELD_PHASE]
+        current_round: int = current_ctx[CTX_FIELD_ROUND]
+
+        # 2. 校验迁移合法性
+        allowed = self.VALID_TRANSITIONS.get(old_phase, [])
         if next_phase not in allowed:
             raise InvalidTransitionError(
-                current_state=self._current_phase,
+                current_state=old_phase,
                 target_state=next_phase,
             )
 
-        # 当前阶段成为前置阶段
-        old_phase = self._current_phase
-        # 更新当前阶段
-        self._current_phase = next_phase
-
-        # 新的一轮开始：进入 NIGHT_START 时递增轮次
+        # 3. 计算新轮次
+        new_round = current_round
         if next_phase == GamePhase.NIGHT_START:
-            self._round += 1
+            new_round += 1
 
+        # 4. 保存新状态到 Redis —— 必须先成功才能发布事件
+        await self._save_context(next_phase, new_round)
+
+        # 5. 记录日志
         logger.info(
             "phase_transition",
             game_id=self.game_id,
             old_phase=old_phase.value if old_phase else None,
             new_phase=next_phase.value,
-            round=self._round,
+            round=new_round,
         )
 
-        # 绑定当前阶段
+        # 6. 绑定当前阶段到日志上下文
         bind_game_context(self.game_id, next_phase.value)
 
-        # 发布阶段变更事件
-        await self._publish_phase_change(old_phase, next_phase, context or {})
+        # 7. 发布阶段变更事件
+        await self._publish_phase_change(old_phase, next_phase, new_round, context or {})
 
     async def _publish_phase_change(
         self,
         old_phase: Optional[GamePhase],
         new_phase: GamePhase,
+        round_num: int,
         context: dict,
     ) -> None:
         """
         创建并发布阶段变更事件。
 
         **Why**: 事件发布逻辑从 ``transition_to`` 中提取为独立方法，
-        便于子类覆盖或测试 mock。事件 ID 使用 UUID4 保证全局唯一。
+        便于子类覆盖或测试 mock。
 
         Args:
             old_phase: 迁移前的阶段，可能为 ``None``。
             new_phase: 迁移后的阶段。
+            round_num: 当前轮次。
             context: 合并到事件 payload 的额外上下文。
         """
-        # 创建事件内容
         payload: dict = {
             "old_phase": old_phase.value if old_phase else None,
             "new_phase": new_phase.value,
-            "round": self._round,
+            "round": round_num,
             **context,
         }
 
-        # 创建事件实体
         event = Event(
             event_id=str(uuid.uuid4()),
             game_id=self.game_id,
@@ -234,5 +394,4 @@ class PhaseStateMachine:
             payload=payload,
         )
 
-        # 发布事件
         await self.event_bus.publish(event)

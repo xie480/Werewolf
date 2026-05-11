@@ -42,9 +42,9 @@ from typing import Optional
 
 import redis.asyncio as aioredis
 
-from ai_werewolf_core.config import settings
 from ai_werewolf_core.constants import RedisKeys
 from ai_werewolf_core.utils.logger import get_logger
+from ai_werewolf_core.utils.redis_client import RedisClientManager
 
 logger = get_logger(__name__)
 
@@ -268,12 +268,15 @@ class RedisSeqGenerator:
             ) from e
 
     async def close(self) -> None:
-        """关闭 Redis 连接 (仅当发号器拥有自己的客户端时)。"""
-        if self._owns_client and self._redis is not None:
-            await self._redis.close()
-            self._redis = None
-            self._closed = True
-            logger.info("Redis 时序发号器已关闭")
+        """标记发号器为已关闭状态。
+
+        **Why**: 由于现在共享 RedisClientManager 的连接池，
+        此方法不再关闭实际的网络连接。仅设置内部标记，
+        防止后续调用 _get_client() 继续使用。
+        """
+        self._redis = None
+        self._closed = True
+        logger.debug("Redis 时序发号器已标记为关闭")
 
     # ------------------------------------------------------------------
     # 内部辅助方法
@@ -282,36 +285,33 @@ class RedisSeqGenerator:
     @staticmethod
     def _build_key(game_id: str) -> str:
         """构建 Redis Key: werewolf:seq:{game_id}"""
-        return f"{RedisKeys.SEQ_PREFIX}:{game_id}"
+        return RedisKeys.seq(game_id)
 
     async def _get_client(self) -> aioredis.Redis:
-        """获取 Redis 客户端，按需懒初始化连接。"""
+        """获取 Redis 客户端，通过共享连接池管理器。
+
+        使用 :class:`RedisClientManager` 获取全局共享的 Redis 客户端，
+        避免每个模块独立创建连接池导致连接数膨胀。
+
+        Returns:
+            共享的 :class:`redis.asyncio.Redis` 客户端实例。
+
+        Raises:
+            RedisUnavailableException: 发号器已关闭或 Redis 不可用。
+        """
         if self._closed:
             raise RedisUnavailableException("Redis 时序发号器已关闭")
 
         if self._redis is None:
-            self._redis = self._create_client()
-            logger.info(
-                "Redis 时序发号器连接已建立",
-                host=settings.redis_host,
-                port=settings.redis_port,
-                db=settings.redis_db,
-            )
-        return self._redis
+            try:
+                self._redis = await RedisClientManager.get_client()
+                logger.debug("Redis 时序发号器已获取共享客户端")
+            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+                raise RedisUnavailableException(
+                    "无法获取 Redis 客户端：共享连接池初始化失败"
+                ) from e
 
-    @staticmethod
-    def _create_client() -> aioredis.Redis:
-        """创建 Redis 异步客户端 (使用连接池)。"""
-        pool = aioredis.ConnectionPool(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            db=settings.redis_db,
-            max_connections=settings.redis_max_connections,
-            socket_timeout=settings.redis_timeout,
-            socket_connect_timeout=settings.redis_timeout,
-            decode_responses=True,
-        )
-        return aioredis.Redis(connection_pool=pool)
+        return self._redis
 
 
 # ============================================================================

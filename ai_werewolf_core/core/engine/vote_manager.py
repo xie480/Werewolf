@@ -1,5 +1,5 @@
 """
-投票管理器 (VoteManager) 模块。
+投票管理器 (VoteManager) 模块 —— 基于 Redis Hash 的无状态投票管理。
 
 **Why**: 狼人杀白天投票（放逐投票、PK 投票）是群体性的即时结算行为，
 与夜晚的串行暂存-统一结算模式有本质区别。本模块遵循单一职责原则 (SRP)，
@@ -11,29 +11,55 @@
 3. **即时结算**：若产生唯一最高票，直接调用目标角色的 ``die()`` 方法，
    并通过 EventBus 发布 ``PLAYER_DEATH`` 事件。
 
+**Redis 数据模型**:
+    - Key: ``werewolf:vote:{game_id}:{round}`` (Hash)
+    - Field: ``voter_id`` (投票人)
+    - Value: ``target_id`` (被投人，空字符串表示弃权)
+    - TTL: 24 小时 (86400 秒)
+    - 原子性保证: HSET 天然支持覆盖更新，多 Worker 并发无竞态
+
 **规则硬编码**: 所有投票平票逻辑、票数统计均在 Python 代码中硬编码，
 不依赖 LLM 判定，确保游戏逻辑的确定性和可审计性。
 
 参考:
 - :doc:`docs/plan/白天行动结算与投票管理器设计`
+- :doc:`docs/plan/Redis缓存架构优化方案`
 - :doc:`docs/agent.md`
 """
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+import redis.asyncio as aioredis
+
+from ai_werewolf_core.constants import RedisKeys
 from ai_werewolf_core.core.event.bus import EventBus
 from ai_werewolf_core.core.engine.exceptions import ActionValidationError
 from ai_werewolf_core.core.engine.roles.base import BaseRole
 from ai_werewolf_core.schemas.enums import ActionType, EventType, GamePhase, Visibility
 from ai_werewolf_core.schemas.models import AgentAction, Event
 from ai_werewolf_core.utils.logger import get_logger
+from ai_werewolf_core.utils.player_status import PlayerStatusManager
+from ai_werewolf_core.utils.redis_client import RedisClientManager
+from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
 
 logger = get_logger(__name__)
+
+# ============================================================================
+# 常量定义
+# ============================================================================
+
+# 投票 Hash 的 TTL (秒)
+VOTE_TTL_SEC: int = 86400  # 24 小时
+
+# Redis 操作重试配置
+RETRY_COUNT: int = 3
+RETRY_DELAY_SEC: float = 0.1
 
 
 # ------------------------------------------------------------------
@@ -93,7 +119,7 @@ class VoteManager:
     """投票管理器 —— 专职处理群体性的投票行为。
 
     作为 Game Engine 与投票逻辑之间的中间层，负责：
-    1. **开启投票回合**：清空历史选票，设置可选的 PK 候选人名单。
+    1. **开启投票回合**：设置可选的 PK 候选人名单。
     2. **接收与校验选票**：验证投票人存活、阶段合法性、PK 候选人限制。
     3. **结算投票**：统计票数，若存在唯一最高票则执行即时死亡结算，
        若平票则返回平票名单供引擎处理。
@@ -102,11 +128,15 @@ class VoteManager:
     不存在像夜晚那样"狼刀 → 女巫救 → 女巫毒"的因果链反转。
     因此采用即时结算模式，简化设计并降低状态管理复杂度。
 
+    **Redis 无状态设计**:
+        投票数据存储在 Redis Hash 中，不在实例上保存任何投票状态。
+        多 Worker 进程共享同一 Hash，HSET 天然支持并发覆盖更新。
+
     Attributes:
         game_id: 对局唯一标识。
         event_bus: 事件总线实例。
-        current_votes: 当前投票回合的选票映射 ``voter_id → target_id``。
         pk_candidates: 当前 PK 候选人名单（None 表示普通投票，无候选人限制）。
+        _current_round: 当前投票轮次（从外部传入）。
     """
 
     def __init__(self, game_id: str, event_bus: EventBus) -> None:
@@ -118,42 +148,246 @@ class VoteManager:
         """
         self.game_id: str = game_id
         self.event_bus: EventBus = event_bus
-        self.current_votes: Dict[str, str] = {}
-        """当前投票回合的选票映射: voter_id → target_id"""
 
+        # Redis 客户端 (懒初始化，共享连接池)
+        self._redis: Optional[aioredis.Redis] = None
+
+        # 当前投票控制状态 (内存管理——非游戏状态，而是"控制面"参数)
         self.pk_candidates: Optional[List[str]] = None
         """当前 PK 候选人名单。None 表示普通投票（无候选人限制）。"""
 
-        self._vote_history: List[Dict[str, str]] = []
-        """历史投票记录，用于复盘审计。"""
+        self._current_round: int = 0
+        """当前投票轮次（由 begin_vote 传入）。"""
+
+        self._player_status: PlayerStatusManager = PlayerStatusManager()
+        """玩家状态缓存管理器，用于同步更新 Redis BitMap。"""
 
         self._logger = logger.bind(game_id=self.game_id, module="VoteManager")
+
+    # ------------------------------------------------------------------
+    # Redis 客户端懒初始化
+    # ------------------------------------------------------------------
+
+    async def _get_redis(self) -> aioredis.Redis:
+        """获取 Redis 异步客户端（懒初始化，共享连接池）。
+
+        Returns:
+            共享的 Redis 异步客户端实例。
+
+        Raises:
+            RedisUnavailableException: Redis 连接池初始化失败。
+        """
+        if self._redis is None:
+            try:
+                self._redis = await RedisClientManager.get_client()
+                self._logger.debug("VoteManager 已获取共享 Redis 客户端")
+            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+                raise RedisUnavailableException(
+                    f"VoteManager 无法获取 Redis 客户端: game_id={self.game_id}"
+                ) from e
+        return self._redis
+
+    # ------------------------------------------------------------------
+    # Key 构建
+    # ------------------------------------------------------------------
+
+    def _vote_key(self) -> str:
+        """构建当前轮次的投票 Redis Hash Key。
+
+        Returns:
+            Redis Key 字符串: ``werewolf:vote:{game_id}:{round}``
+        """
+        return RedisKeys.vote_hash(self.game_id, self._current_round)
+
+    # ------------------------------------------------------------------
+    # Redis 操作（带重试）
+    # ------------------------------------------------------------------
+
+    async def _redis_hset(self, field: str, value: str) -> None:
+        """执行 HSET 操作（带重试）。
+
+        **Why**: 投票数据的一致性至关重要，Redis 不可用时必须拒绝操作，
+        不允许降级。使用指数退避重试策略应对瞬时网络抖动。
+
+        Args:
+            field: Hash field (voter_id)。
+            value: Hash value (target_id)。
+
+        Raises:
+            RedisUnavailableException: 重试耗尽后 Redis 仍不可用。
+        """
+        key = self._vote_key()
+        redis = await self._get_redis()
+
+        for attempt in range(1, RETRY_COUNT + 1):
+            try:
+                await redis.hset(key, field, value)
+                # 设置 TTL（每次 HSET 都刷新，确保过期时间正确）
+                await redis.expire(key, VOTE_TTL_SEC)
+                return
+            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+                self._logger.warning(
+                    "Redis HSET 连接异常，重试中",
+                    key=key,
+                    field=field,
+                    attempt=attempt,
+                    max_retries=RETRY_COUNT,
+                    error=str(e),
+                )
+                if attempt < RETRY_COUNT:
+                    await asyncio.sleep(RETRY_DELAY_SEC * attempt)
+                else:
+                    raise RedisUnavailableException(
+                        f"投票记录失败: game_id={self.game_id}, "
+                        f"voter={field}, 重试 {RETRY_COUNT} 次后 Redis 仍不可用"
+                    ) from e
+            except aioredis.ResponseError as e:
+                self._logger.error(
+                    "Redis HSET 响应异常",
+                    key=key,
+                    field=field,
+                    error=str(e),
+                    exc_info=True,
+                )
+                raise RedisUnavailableException(
+                    f"Redis 返回错误响应: {e}"
+                ) from e
+
+    async def _redis_hgetall(self) -> Dict[str, str]:
+        """执行 HGETALL 操作（带重试）。
+
+        Returns:
+            ``voter_id → target_id`` 的全量选票映射。
+
+        Raises:
+            RedisUnavailableException: 重试耗尽后 Redis 仍不可用。
+        """
+        key = self._vote_key()
+        redis = await self._get_redis()
+
+        for attempt in range(1, RETRY_COUNT + 1):
+            try:
+                result = await redis.hgetall(key)
+                return result or {}
+            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+                self._logger.warning(
+                    "Redis HGETALL 连接异常，重试中",
+                    key=key,
+                    attempt=attempt,
+                    max_retries=RETRY_COUNT,
+                    error=str(e),
+                )
+                if attempt < RETRY_COUNT:
+                    await asyncio.sleep(RETRY_DELAY_SEC * attempt)
+                else:
+                    raise RedisUnavailableException(
+                        f"投票查询失败: game_id={self.game_id}, "
+                        f"重试 {RETRY_COUNT} 次后 Redis 仍不可用"
+                    ) from e
+            except aioredis.ResponseError as e:
+                self._logger.error(
+                    "Redis HGETALL 响应异常",
+                    key=key,
+                    error=str(e),
+                    exc_info=True,
+                )
+                raise RedisUnavailableException(
+                    f"Redis 返回错误响应: {e}"
+                ) from e
+
+    async def _redis_hlen(self) -> int:
+        """执行 HLEN 操作，获取已投票人数。
+
+        Returns:
+            已投票人数。Redis 不可用时返回 0。
+
+        Raises:
+            RedisUnavailableException: 重试耗尽后 Redis 仍不可用。
+        """
+        key = self._vote_key()
+        redis = await self._get_redis()
+
+        for attempt in range(1, RETRY_COUNT + 1):
+            try:
+                return await redis.hlen(key)
+            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+                self._logger.warning(
+                    "Redis HLEN 连接异常，重试中",
+                    key=key,
+                    attempt=attempt,
+                    error=str(e),
+                )
+                if attempt < RETRY_COUNT:
+                    await asyncio.sleep(RETRY_DELAY_SEC * attempt)
+                else:
+                    raise RedisUnavailableException(
+                        f"投票人数查询失败: game_id={self.game_id}"
+                    ) from e
+
+    async def _redis_hexists(self, voter_id: str) -> bool:
+        """检查指定玩家是否已投票。
+
+        Args:
+            voter_id: 玩家 ID。
+
+        Returns:
+            ``True`` 如果已投票。
+        """
+        key = self._vote_key()
+        try:
+            redis = await self._get_redis()
+            return await redis.hexists(key, voter_id)
+        except (aioredis.ConnectionError, aioredis.TimeoutError):
+            self._logger.warning(
+                "Redis HEXISTS 失败",
+                key=key,
+                voter_id=voter_id,
+            )
+            return False
+
+    async def _redis_delete(self) -> None:
+        """删除当前轮次的投票 Hash（清空选票）。
+
+        在 begin_vote 时调用，清除上一轮的选票数据。
+        """
+        key = self._vote_key()
+        try:
+            redis = await self._get_redis()
+            await redis.delete(key)
+            self._logger.debug("vote_hash_deleted", key=key)
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            self._logger.warning(
+                "删除投票 Hash 失败",
+                key=key,
+                error=str(e),
+            )
 
     # ------------------------------------------------------------------
     # 投票回合管理
     # ------------------------------------------------------------------
 
-    def begin_vote(self, pk_candidates: Optional[List[str]] = None) -> None:
-        """开启新一轮投票，清空历史选票。
+    def begin_vote(
+        self, round_num: int, pk_candidates: Optional[List[str]] = None
+    ) -> None:
+        """开启新一轮投票。
 
-        **Why**: 每轮投票开始前必须调用此方法，确保上一轮的选票残留
-        不会污染新的投票回合。若为 PK 投票，需传入 PK 候选人名单以限制
-        投票目标。
+        **Why**: 每轮投票开始前必须调用此方法，设置当前轮次以便构建
+        正确的 Redis Key，确保不同轮次的选票不会互相污染。
+
+        若为 PK 投票，需传入 PK 候选人名单以限制投票目标。
 
         通常在状态机进入 ``DAY_VOTE`` 或 ``DAY_PK_VOTE`` 阶段时
         由 Game Engine 调用。
 
         Args:
+            round_num: 当前游戏轮次。
             pk_candidates: PK 候选人名单。若为普通放逐投票，传 None。
         """
-        # 保存上一轮投票到历史记录（用于复盘）
-        if self.current_votes:
-            self._vote_history.append(dict(self.current_votes))
-
-        self.current_votes.clear()
+        self._current_round = round_num
         self.pk_candidates = pk_candidates
         self._logger.info(
             "vote_begin",
+            round=round_num,
             is_pk_vote=pk_candidates is not None,
             pk_candidates=pk_candidates,
         )
@@ -162,7 +396,7 @@ class VoteManager:
     # 选票提交与校验
     # ------------------------------------------------------------------
 
-    def submit_vote(
+    async def submit_vote(
         self,
         action: AgentAction,
         roles: Dict[str, BaseRole],
@@ -174,11 +408,16 @@ class VoteManager:
         1. **动作类型校验**：必须是 ``ActionType.VOTE``。
         2. **投票人存活校验**：投票人必须存在且存活。
         3. **PK 候选人校验**：如果当前是 PK 投票，目标必须在 PK 名单中。
-        4. **重复投票覆盖**：同一投票人多次提交会覆盖前一次投票（以最后一次为准）。
+        4. **写入 Redis**: 通过 HSET 原子写入，天然支持覆盖更新。
 
         **Why (允许覆盖而非拒绝)**: AI Agent 可能在投票阶段多次调用 LLM
         并提交不同投票，采用"最后一次为准"的策略可以避免因中间态的决策变更
-        导致的拒绝处理复杂度。
+        导致的拒绝处理复杂度。HSET 命令天然支持覆盖更新。
+
+        **Why (Redis HSET)**: 在多 Worker 部署下，不同进程可能同时接收
+        不同 Agent 的投票请求。HSET 操作是原子性的，多个进程并发写入
+        同一 Hash 的不同 Field 不会相互干扰，写入同一 Field 时最后
+        写入的值生效。
 
         Args:
             action: Agent 提交的投票动作。
@@ -191,6 +430,7 @@ class VoteManager:
         Raises:
             ActionValidationError: 选票非法（类型错误 / 投票人不存在或已死亡 /
                 PK 投票目标不在候选人名单中）。
+            RedisUnavailableException: Redis 不可用，无法记录选票。
         """
         # ── 校验 1: 动作类型 ──
         if action.action_type != ActionType.VOTE:
@@ -223,23 +463,33 @@ class VoteManager:
                     f"不可投给 [{action.target_id}]",
                 )
 
-        # ── 记录选票（覆盖模式） ──
-        previous_vote = self.current_votes.get(voter_id)
-        self.current_votes[voter_id] = action.target_id or ""  # 空字符串表示弃权
+        # ── 记录选票到 Redis Hash（原子覆盖模式） ──
+        target_value = action.target_id or ""  # 空字符串表示弃权
+        try:
+            # 检查是否覆盖已有投票（用于日志）
+            had_previous = await self._redis_hexists(voter_id)
+            await self._redis_hset(voter_id, target_value)
 
-        if previous_vote is not None:
-            self._logger.info(
-                "vote_updated",
+            if had_previous:
+                self._logger.info(
+                    "vote_updated",
+                    voter_id=voter_id,
+                    new_target=action.target_id or "(弃权)",
+                )
+            else:
+                self._logger.info(
+                    "vote_submitted",
+                    voter_id=voter_id,
+                    target_id=action.target_id or "(弃权)",
+                )
+        except RedisUnavailableException:
+            self._logger.error(
+                "投票写入 Redis 失败",
                 voter_id=voter_id,
-                previous_target=previous_vote or "(弃权)",
-                new_target=action.target_id or "(弃权)",
+                target_id=action.target_id,
+                exc_info=True,
             )
-        else:
-            self._logger.info(
-                "vote_submitted",
-                voter_id=voter_id,
-                target_id=action.target_id or "(弃权)",
-            )
+            raise
 
         return True
 
@@ -253,12 +503,13 @@ class VoteManager:
         """结算当前投票回合，统计票数并处理结果。
 
         结算逻辑：
-        1. **统计投票分布**：使用 ``Counter`` 统计每个目标获得的票数。
-        2. **确定最高票**：找出得票最高的目标（可能为多人并列）。
-        3. **平票判断**：
+        1. **从 Redis 拉取全量选票**：使用 HGETALL 获取所有 voter_id → target_id。
+        2. **统计投票分布**：使用 ``Counter`` 统计每个目标获得的票数。
+        3. **确定最高票**：找出得票最高的目标（可能为多人并列）。
+        4. **平票判断**：
            - 若最高票有多人并列 → 返回平票结果，由引擎决定是否进入 PK。
            - 若唯一最高票 → 执行即时死亡结算（调用 ``die()`` + 发布事件）。
-        4. **无人得票处理**：若所有选票均为弃权，``highest_voted`` 为空列表。
+        5. **无人得票处理**：若所有选票均为弃权，``highest_voted`` 为空列表。
 
         **Why (即时执行死亡)**: 白天放逐投票的结果一经确定即刻生效，
         不存在反悔或撤销机制。直接在此处调用 ``die()`` 可以保证状态一致性，
@@ -275,24 +526,36 @@ class VoteManager:
 
         Raises:
             ActionValidationError: 如果被放逐的目标角色不存在。
+            RedisUnavailableException: Redis 不可用，无法拉取选票。
         """
         self._logger.info(
             "vote_resolve_start",
-            total_votes=len(self.current_votes),
+            round=self._current_round,
             pk_candidates=self.pk_candidates,
         )
 
-        # ── Step 1: 统计投票分布 ──
+        # ── Step 1: 从 Redis 拉取全量选票 ──
+        try:
+            all_votes = await self._redis_hgetall()
+        except RedisUnavailableException as e:
+            self._logger.error(
+                "结算失败：Redis 不可用，无法拉取选票",
+                round=self._current_round,
+                error=str(e),
+            )
+            raise
+
+        # ── Step 2: 统计投票分布 ──
         # Why: 使用 Counter 而非手动累加，代码更简洁且不易出错。
         # 过滤掉空字符串（弃权票），不计入得票统计。
         vote_targets = [
-            target for target in self.current_votes.values() if target
+            target for target in all_votes.values() if target
         ]
         vote_count: Dict[str, int] = dict(Counter(vote_targets))
 
-        total_voters = len(self.current_votes)
+        total_voters = len(all_votes)
 
-        # ── Step 2: 确定最高票 ──
+        # ── Step 3: 确定最高票 ──
         highest_voted: List[str] = []
         if vote_count:
             max_votes = max(vote_count.values())
@@ -312,12 +575,14 @@ class VoteManager:
             total_voters=total_voters,
         )
 
-        # ── Step 3: 处理唯一最高票 —— 即时死亡结算 ──
+        # ── Step 4: 处理唯一最高票 —— 即时死亡结算 ──
         if not is_tie and len(highest_voted) == 1:
             voted_out_id = highest_voted[0]
-            await self._execute_elimination(voted_out_id, roles, vote_count, current_round)
+            await self._execute_elimination(
+                voted_out_id, roles, vote_count, current_round
+            )
 
-        # ── Step 4: 发布投票结算事件 ──
+        # ── Step 5: 发布投票结算事件 ──
         await self._publish_vote_resolve_event(
             is_tie=is_tie,
             highest_voted=highest_voted,
@@ -325,11 +590,11 @@ class VoteManager:
             total_voters=total_voters,
         )
 
-        # ── Step 5: 构建结算结果 ──
+        # ── Step 6: 构建结算结果 ──
         result = VoteResolveResult(
             is_tie=is_tie,
             highest_voted=highest_voted,
-            vote_details=dict(self.current_votes),
+            vote_details=dict(all_votes),
             vote_count=vote_count,
             total_voters=total_voters,
         )
@@ -389,6 +654,10 @@ class VoteManager:
 
         # 执行死亡
         target_role.die()
+        # 同步更新 Redis BitMap 存活状态——多 Worker 一致性要求
+        await self._player_status.mark_dead(
+            self.game_id, target_id, target_role.seat_number
+        )
         self._logger.info(
             "player_eliminated_by_vote",
             player_id=target_id,
@@ -450,6 +719,7 @@ class VoteManager:
                 "vote_count": vote_count,
                 "total_voters": total_voters,
                 "is_pk_vote": self.pk_candidates is not None,
+                "round": self._current_round,
             },
         )
         await self.event_bus.publish(event)
@@ -458,31 +728,31 @@ class VoteManager:
     # 查询接口
     # ------------------------------------------------------------------
 
-    def get_current_votes(self) -> Dict[str, str]:
+    async def get_current_votes(self) -> Dict[str, str]:
         """获取当前选票的只读副本。
 
         Returns:
             ``voter_id → target_id`` 的映射副本（空字符串表示弃权）。
         """
-        return dict(self.current_votes)
+        try:
+            return await self._redis_hgetall()
+        except RedisUnavailableException:
+            self._logger.warning("get_current_votes 失败：Redis 不可用")
+            return {}
 
-    def get_vote_history(self) -> List[Dict[str, str]]:
-        """获取历史投票记录。
-
-        Returns:
-            历史投票列表，每个元素为一个投票回合的选票映射副本。
-        """
-        return [dict(votes) for votes in self._vote_history]
-
-    def get_voter_count(self) -> int:
+    async def get_voter_count(self) -> int:
         """获取已投票人数。
 
         Returns:
             当前回合已投票的玩家数量。
         """
-        return len(self.current_votes)
+        try:
+            return await self._redis_hlen()
+        except RedisUnavailableException:
+            self._logger.warning("get_voter_count 失败：Redis 不可用")
+            return 0
 
-    def has_voted(self, voter_id: str) -> bool:
+    async def has_voted(self, voter_id: str) -> bool:
         """检查指定玩家是否已投票。
 
         Args:
@@ -491,7 +761,7 @@ class VoteManager:
         Returns:
             ``True`` 如果该玩家已投票。
         """
-        return voter_id in self.current_votes
+        return await self._redis_hexists(voter_id)
 
     def is_pk_vote(self) -> bool:
         """检查当前是否为 PK 投票回合。
@@ -505,13 +775,16 @@ class VoteManager:
     # 生命周期管理
     # ------------------------------------------------------------------
 
-    def reset(self) -> None:
+    async def reset(self) -> None:
         """完全重置投票管理器状态。
 
-        **Why**: 在对局结束或重新开始时调用，确保所有状态被清理，
-        避免跨对局的状态污染。
+        **Why**: 在对局结束或重新开始时调用，清除 Redis 中的选票数据
+        和内存中的控制参数，确保跨对局的状态隔离。
         """
-        self.current_votes.clear()
         self.pk_candidates = None
-        self._vote_history.clear()
+        self._current_round = 0
+
+        # 清除当前轮次的 Redis 选票数据
+        await self._redis_delete()
+
         self._logger.info("vote_manager_reset")

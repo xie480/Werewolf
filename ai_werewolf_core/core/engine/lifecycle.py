@@ -1,10 +1,18 @@
 """
-Game Engine 生命周期管理器 (Lifecycle Manager) 模块。
+Game Engine 生命周期管理器 (Lifecycle Manager) 模块 —— Write-Through 模式。
 
 **Why**: 本模块统一协调狼人杀对局的完整生命周期 —— 从创建房间、初始化身份、
 启动对局、推进阶段、到结算结束或异常中止。它确保所有操作均符合全局状态机
 （:attr:`LifecycleManager.VALID_STATUS_TRANSITIONS`）的制约，并通过内部的
 :class:`PhaseStateMachine` 管理对局内阶段流转。
+
+**Redis Write-Through 设计**:
+    全局状态（status）存储在 Redis Hash ``werewolf:game:{game_id}:context`` 中，
+    同时同步写入 PostgreSQL 的 GameRecord 表。
+    阶段和轮次由 :class:`PhaseStateMachine` 独立管理。
+
+    写入顺序: 校验 → Redis HSET → 同步更新 DB → 发布事件
+    这确保了 Redis 缓存和 DB 之间的一致性。
 
 参考: :doc:`docs/plan/状态机与生命周期设计`
 """
@@ -15,12 +23,19 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+import redis.asyncio as aioredis
+from sqlalchemy import update
+
+from ai_werewolf_core.config import settings
+from ai_werewolf_core.constants import RedisKeys
 from ai_werewolf_core.core.engine.exceptions import (
     GameNotRunnableError,
     InvalidTransitionError,
 )
 from ai_werewolf_core.core.engine.state_machine import PhaseStateMachine
 from ai_werewolf_core.core.event.bus import EventBus
+from ai_werewolf_core.db.models import GameRecord
+from ai_werewolf_core.db.session import async_session_factory
 from ai_werewolf_core.schemas.enums import (
     EventType,
     GamePhase,
@@ -33,22 +48,38 @@ from ai_werewolf_core.utils.logger import (
     clear_all_context,
     get_logger,
 )
+from ai_werewolf_core.utils.redis_client import RedisClientManager
+from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
 
 logger = get_logger(__name__)
+
+# ============================================================================
+# 常量定义
+# ============================================================================
+
+# Redis Hash 字段名
+CTX_FIELD_STATUS: str = "status"
+CTX_FIELD_PHASE: str = "phase"
+CTX_FIELD_ROUND: str = "round"
+
+# 对局上下文 TTL (秒) —— 对局结束后 1 小时
+GAME_CONTEXT_TTL_SEC: int = 3600
 
 
 class LifecycleManager:
     """
-    对局生命周期管理器。
+    对局生命周期管理器 —— Write-Through 模式。
 
     封装了从房间创建到对局结束的全流程控制。内部持有:
-    - ``status``: 全局游戏状态（:class:`GameStatus`）
     - ``state_machine``: 阶段状态机（:class:`PhaseStateMachine`），负责管理
       ``RUNNING`` 状态下的具体阶段流转。
 
     **Why**: 将生命周期和阶段流转拆分为两个层级的控制，使得全局状态
     （INIT/START/RUNNING/SETTLING/FINISHED/ABORTED）与局内阶段（NIGHT/DAY/DISCUSSION...）
     可以独立校验和演进，避免状态管理逻辑耦合在单一类中。
+
+    **Write-Through 策略**:
+        全局 status 变更时，先写 Redis 再同步写 DB，保证缓存与持久层一致。
 
     Attributes:
         game_id: 对局唯一标识。
@@ -78,25 +109,122 @@ class LifecycleManager:
         Args:
             game_id: 对局唯一标识。
             event_bus: 事件总线实例，用于发布全局状态变更事件。
-
-        :ivar status: 当前全局游戏状态，初始为 :attr:`GameStatus.INIT`。
-        :ivar state_machine: 内部阶段状态机实例，随 ``start_game`` 激活。
         """
         self.game_id: str = game_id
         self.event_bus: EventBus = event_bus
-        self._status: GameStatus = GameStatus.INIT
         self.state_machine: PhaseStateMachine = PhaseStateMachine(game_id, event_bus)
 
-    @property
-    def status(self) -> GameStatus:
-        """当前全局游戏生命周期状态 (:class:`GameStatus`)。"""
-        return self._status
+        # Redis 客户端 (懒初始化，共享连接池)
+        self._redis: Optional[aioredis.Redis] = None
+
+        self._logger = logger.bind(game_id=self.game_id, module="LifecycleManager")
+
+    # ------------------------------------------------------------------
+    # Redis 客户端懒初始化
+    # ------------------------------------------------------------------
+
+    async def _get_redis(self) -> aioredis.Redis:
+        """获取 Redis 异步客户端（懒初始化，共享连接池）。"""
+        if self._redis is None:
+            try:
+                self._redis = await RedisClientManager.get_client()
+                self._logger.debug("LifecycleManager 已获取共享 Redis 客户端")
+            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+                raise RedisUnavailableException(
+                    f"LifecycleManager 无法获取 Redis 客户端: game_id={self.game_id}"
+                ) from e
+        return self._redis
+
+    # ------------------------------------------------------------------
+    # Redis 上下文操作
+    # ------------------------------------------------------------------
+
+    def _context_key(self) -> str:
+        """构建对局上下文 Redis Hash Key。"""
+        return RedisKeys.game_context(self.game_id)
+
+    async def _get_status_from_redis(self) -> Optional[GameStatus]:
+        """从 Redis 获取当前全局状态。
+
+        Returns:
+            当前 :class:`GameStatus`；Key 不存在时返回 ``None``。
+        """
+        key = self._context_key()
+        try:
+            redis = await self._get_redis()
+            raw = await redis.hget(key, CTX_FIELD_STATUS)
+            if raw is None:
+                return None
+            return GameStatus(raw)
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            self._logger.error("读取状态失败", error=str(e), exc_info=True)
+            raise RedisUnavailableException(
+                f"无法从 Redis 读取状态: game_id={self.game_id}"
+            ) from e
+
+    async def _set_status_to_redis(self, status: GameStatus) -> None:
+        """Write-Through: 更新 Redis 中的全局状态。
+
+        Args:
+            status: 目标全局状态。
+
+        Raises:
+            RedisUnavailableException: Redis 不可用。
+        """
+        key = self._context_key()
+        try:
+            redis = await self._get_redis()
+            await redis.hset(key, CTX_FIELD_STATUS, status.value)
+            self._logger.debug("status_synced_to_redis", status=status.value)
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            raise RedisUnavailableException(
+                f"无法写入状态到 Redis: game_id={self.game_id}"
+            ) from e
+
+    async def _set_status_to_db(self, status: GameStatus) -> None:
+        """Write-Through: 同步更新 DB GameRecord。
+
+        Args:
+            status: 目标全局状态。
+        """
+        try:
+            async with async_session_factory() as session:
+                stmt = (
+                    update(GameRecord)
+                    .where(GameRecord.id == self.game_id)
+                    .values(status=status)
+                )
+                await session.execute(stmt)
+                await session.commit()
+                self._logger.debug("status_synced_to_db", status=status.value)
+        except Exception as e:
+            self._logger.error(
+                "DB 状态同步失败（Redis 已更新，存在短暂不一致）",
+                status=status.value,
+                error=str(e),
+                exc_info=True,
+            )
+
+    # ------------------------------------------------------------------
+    # 公开属性
+    # ------------------------------------------------------------------
+
+    async def get_status(self) -> GameStatus:
+        """获取当前全局游戏生命周期状态。
+
+        Returns:
+            当前 :class:`GameStatus`。如果 Redis 中无数据，返回 INIT。
+        """
+        status = await self._get_status_from_redis()
+        if status is None:
+            return GameStatus.INIT
+        return status
 
     # ------------------------------------------------------------------
     # 内部校验与事件发布
     # ------------------------------------------------------------------
 
-    def _validate_status_transition(self, new_status: GameStatus) -> None:
+    def _validate_status_transition(self, current: GameStatus, new_status: GameStatus) -> None:
         """
         校验全局状态迁移是否合法。
 
@@ -104,15 +232,16 @@ class LifecycleManager:
         必须通过此方法校验，防止跳过步骤或逆序操作。
 
         Args:
+            current: 当前全局状态。
             new_status: 目标全局状态。
 
         Raises:
             InvalidTransitionError: 迁移路径不在 :attr:`VALID_STATUS_TRANSITIONS` 中。
         """
-        allowed = self.VALID_STATUS_TRANSITIONS.get(self._status, [])
+        allowed = self.VALID_STATUS_TRANSITIONS.get(current, [])
         if new_status not in allowed:
             raise InvalidTransitionError(
-                current_state=self._status,
+                current_state=current,
                 target_state=new_status,
             )
 
@@ -156,18 +285,37 @@ class LifecycleManager:
 
     async def _set_status(self, new_status: GameStatus) -> None:
         """
-        内部原子操作：校验 -> 更新状态 -> 日志 -> 发布事件。
+        内部原子操作：校验 → Write-Through (Redis + DB) → 日志 → 发布事件。
+
+        **Write-Through 策略**:
+        1. 从 Redis 读取当前状态
+        2. 校验迁移合法性
+        3. 写 Redis（缓存层优先）
+        4. 同步写 DB（持久层）
 
         Args:
             new_status: 目标全局状态。
 
         Raises:
             InvalidTransitionError: 校验失败。
+            RedisUnavailableException: Redis 不可用。
         """
-        self._validate_status_transition(new_status)
-        old_status = self._status
-        self._status = new_status
+        # 1. 读取当前状态
+        current = await self._get_status_from_redis()
+        if current is None:
+            current = GameStatus.INIT
 
+        # 2. 校验合法性
+        self._validate_status_transition(current, new_status)
+        old_status = current
+
+        # 3. Write-Through: 更新 Redis
+        await self._set_status_to_redis(new_status)
+
+        # 4. Write-Through: 同步更新 DB
+        await self._set_status_to_db(new_status)
+
+        # 5. 日志
         logger.info(
             "lifecycle_status_changed",
             game_id=self.game_id,
@@ -175,6 +323,7 @@ class LifecycleManager:
             new_status=new_status.value,
         )
 
+        # 6. 发布事件
         await self._publish_status_change(old_status, new_status)
 
     # ------------------------------------------------------------------
@@ -187,14 +336,30 @@ class LifecycleManager:
 
         此阶段通常对应创建房间、玩家加入、身份分配等准备工作。
         成功后将状态变更为 ``START`` 并广播事件。
+        同时初始化阶段状态机的 Redis 上下文。
 
         Raises:
             InvalidTransitionError: 当前状态不是 ``INIT``。
         """
-        logger.info("game_init", game_id=self.game_id)
+        self._logger.info("game_init")
+
+        # 初始化 Redis 对局上下文（首次写入）
+        key = self._context_key()
+        redis = await self._get_redis()
+        await redis.hset(key, mapping={
+            CTX_FIELD_STATUS: GameStatus.INIT.value,
+            CTX_FIELD_PHASE: "None",
+            CTX_FIELD_ROUND: "0",
+        })
+        # 注意: 不在此时设置 TTL，等对局结束再设
+
         bind_game_context(self.game_id, GamePhase.INIT.value)
+
         # 初始化阶段状态机: 进入 INIT 阶段 (对局准备)
+        await self.state_machine.init_context()
         await self.state_machine.transition_to(GamePhase.INIT)
+
+        # 状态迁移: INIT → START
         await self._set_status(GameStatus.START)
 
     async def start_game(self) -> None:
@@ -214,7 +379,7 @@ class LifecycleManager:
         Raises:
             InvalidTransitionError: 当前状态不是 ``START``。
         """
-        logger.info("game_start", game_id=self.game_id)
+        self._logger.info("game_start")
         await self._set_status(GameStatus.RUNNING)
 
         # 激活阶段状态机: 进入首轮 NIGHT_START
@@ -243,9 +408,10 @@ class LifecycleManager:
             GameNotRunnableError: 全局状态不是 ``RUNNING``。
             InvalidTransitionError: 阶段迁移路径非法（由 PhaseStateMachine 抛出）。
         """
-        if self._status != GameStatus.RUNNING:
+        current_status = await self._get_status_from_redis()
+        if current_status != GameStatus.RUNNING:
             raise GameNotRunnableError(
-                current_status=self._status,
+                current_status=current_status or GameStatus.INIT,
                 game_id=self.game_id,
             )
 
@@ -260,7 +426,8 @@ class LifecycleManager:
         2. 将 :class:`PhaseStateMachine` 的阶段设置为 :attr:`GamePhase.GAME_OVER`。
         3. 发布 :attr:`EventType.GAME_OVER_EVENT` 事件，payload 包含 ``winner_faction``。
         4. 将状态从 ``SETTLING`` 迁移到 ``FINISHED``。
-        5. 调用 ``clear_all_context()`` 清除日志上下文。
+        5. 设置 Redis 对局上下文 TTL 为 1 小时。
+        6. 调用 ``clear_all_context()`` 清除日志上下文。
 
         **Why**: 分两步（SETTLING → FINISHED）的原因是为结算逻辑（如积分计算、
         成就判定）预留执行窗口，确保结算事件先于终结事件发布。
@@ -271,19 +438,24 @@ class LifecycleManager:
         Raises:
             InvalidTransitionError: 当前状态不是 ``RUNNING`` 或 ``SETTLING``。
         """
-        logger.info("game_end", game_id=self.game_id, winner_faction=winner_faction)
+        self._logger.info("game_end", winner_faction=winner_faction)
 
         # Step 1: RUNNING -> SETTLING
         await self._set_status(GameStatus.SETTLING)
 
         # Step 2: 阶段进入 GAME_OVER
-        # 注意: GAME_OVER 向 None 的迁移由 PhaseStateMachine 的 VALID_TRANSITIONS 允许，
-        # 但实际"游戏彻底结束"由 FINISHED 状态表达；这里仅标记局内阶段的终结。
-        #
-        # HACK: 直接设置内部状态以绕过阶段合法性校验。
+        # HACK: 直接操作 Redis 上下文设置 GAME_OVER 阶段。
         # end_game 是强制结束操作，当前阶段可能是任意值（如 NIGHT_START），
-        # 而 GAME_OVER 并非所有阶段的合法后继。因此直接操作 _current_phase。
-        self.state_machine._current_phase = GamePhase.GAME_OVER
+        # 而 GAME_OVER 并非所有阶段的合法后继。因此绕过 PhaseStateMachine
+        # 的合法性校验，直接写入 Redis。
+        try:
+            redis = await self._get_redis()
+            key = self._context_key()
+            await redis.hset(key, CTX_FIELD_PHASE, GamePhase.GAME_OVER.value)
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            raise RedisUnavailableException(
+                f"无法设置 GAME_OVER 阶段: game_id={self.game_id}"
+            ) from e
 
         # Step 3: 发布 GAME_OVER 事件
         game_over_event = Event(
@@ -296,7 +468,6 @@ class LifecycleManager:
             timestamp=datetime.now(timezone.utc),
             payload={
                 "winner_faction": winner_faction,
-                "total_rounds": self.state_machine.round,
             },
         )
         await self.event_bus.publish(game_over_event)
@@ -304,9 +475,15 @@ class LifecycleManager:
         # Step 4: SETTLING -> FINISHED
         await self._set_status(GameStatus.FINISHED)
 
-        # Step 5: 清理日志上下文
+        # Step 5: 设置 TTL
+        try:
+            await redis.expire(key, GAME_CONTEXT_TTL_SEC)
+        except (aioredis.ConnectionError, aioredis.TimeoutError):
+            self._logger.warning("设置对局上下文 TTL 失败，将由后台清理")
+
+        # Step 6: 清理日志上下文
         clear_all_context()
-        logger.info("game_finished", game_id=self.game_id)
+        self._logger.info("game_finished")
 
     async def abort_game(self, reason: str) -> None:
         """
@@ -316,20 +493,60 @@ class LifecycleManager:
         三种状态中止。INIT 状态不可中止（尚无对局实体），FINISHED 和 ABORTED
         状态已是终结态。
 
-        **Why**: 此方法不校验当前状态是否"允许中止"，而是直接跳转到 ABORTED。
-        这是因为中止是紧急操作，只要不是 INIT/FINISHED/ABORTED 都应被允许。
-        然而，为了保持架构一致性，我们仍然以 ``_set_status`` 为基础进行校验；
-        如果当前状态不允许迁移到 ABORTED，将抛出异常。
-
         Args:
             reason: 中止原因（如 ``"player_disconnected"``）。
 
         Raises:
             InvalidTransitionError: 当前状态不在允许中止的状态集合中。
         """
-        logger.warning("game_abort", game_id=self.game_id, reason=reason)
+        self._logger.warning("game_abort", reason=reason)
 
         await self._set_status(GameStatus.ABORTED)
 
+        # 设置 TTL
+        try:
+            redis = await self._get_redis()
+            key = self._context_key()
+            await redis.expire(key, GAME_CONTEXT_TTL_SEC)
+        except (aioredis.ConnectionError, aioredis.TimeoutError):
+            self._logger.warning("设置对局上下文 TTL 失败")
+
         clear_all_context()
-        logger.info("game_aborted", game_id=self.game_id)
+        self._logger.info("game_aborted")
+
+    # ------------------------------------------------------------------
+    # 状态恢复
+    # ------------------------------------------------------------------
+
+    async def load_from_redis(self) -> bool:
+        """从 Redis 恢复对局状态（Worker 重启后重建上下文）。
+
+        **Why**: 当 Worker 进程重启或新 Worker 接管对局时，
+        可以通过此方法从 Redis 中恢复全局状态和阶段信息，
+        避免从头开始初始化。
+
+        Returns:
+            ``True`` 如果状态恢复成功，``False`` 如果 Redis 中无数据。
+        """
+        key = self._context_key()
+        try:
+            redis = await self._get_redis()
+            raw = await redis.hgetall(key)
+            if not raw:
+                self._logger.info("no_context_to_restore")
+                return False
+
+            status = raw.get(CTX_FIELD_STATUS, "INIT")
+            phase = raw.get(CTX_FIELD_PHASE, "None")
+            round_num = raw.get(CTX_FIELD_ROUND, "0")
+
+            self._logger.info(
+                "context_restored",
+                status=status,
+                phase=phase,
+                round=round_num,
+            )
+            return True
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            self._logger.error("状态恢复失败", error=str(e))
+            return False

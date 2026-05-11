@@ -39,6 +39,7 @@ from ai_werewolf_core.schemas.enums import (
 )
 from ai_werewolf_core.schemas.models import AgentAction, Event
 from ai_werewolf_core.utils.logger import get_logger
+from ai_werewolf_core.utils.player_status import PlayerStatusManager
 
 logger = get_logger(__name__)
 
@@ -144,6 +145,9 @@ class ActionResolver:
 
         self._night_resolved: bool = False
         """标记当前夜晚是否已完成结算（防止在同一夜多次调用 resolve）。"""
+
+        self._player_status: PlayerStatusManager = PlayerStatusManager()
+        """玩家状态缓存管理器，用于同步更新 Redis BitMap。"""
 
         self._logger = logger.bind(game_id=self.game_id, module="ActionResolver")
 
@@ -417,6 +421,10 @@ class ActionResolver:
             role = roles.get(player_id)
             if role is not None and role.is_alive:
                 role.die()
+                # 同步更新 Redis BitMap 存活状态——多 Worker 一致性要求
+                await self._player_status.mark_dead(
+                    self.game_id, player_id, role.seat_number
+                )
                 self._logger.info(
                     "player_died",
                     player_id=player_id,
