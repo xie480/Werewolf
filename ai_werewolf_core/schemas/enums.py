@@ -93,6 +93,9 @@ class ActionType(str, Enum):
     WITCH_SAVE = "WITCH_SAVE"   # 女巫使用解药
     WITCH_POISON = "WITCH_POISON"  # 女巫使用毒药
 
+    # 特殊技能动作
+    HUNTER_SHOOT = "HUNTER_SHOOT"   # 猎人死亡开枪
+
 
 class EventType(str, Enum):
     """事件类型枚举。
