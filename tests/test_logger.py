@@ -37,7 +37,7 @@ def test_basic_logging():
     setup_logger()
     logger = get_logger("test_basic")
 
-    bind_game_context("game_001", "NIGHT_ACTION")
+    bind_game_context("game_001", "NIGHT_WOLF_ACT")
     bind_agent_context("player_1")
 
     logger.info("狼人开始行动", event_type="werewolf_action", target="player_3")
@@ -69,6 +69,9 @@ async def agent_task(agent_id: str, game_id: str, phase: str):
     clear_agent_context()
 
 
+import pytest
+
+@pytest.mark.asyncio
 async def test_concurrent_isolation():
     """
     核心测试：并发隔离验证。
@@ -101,7 +104,7 @@ async def test_concurrent_isolation():
     )
 
     tasks = [
-        agent_task(f"player_{i}", f"game_{i % 2}", "NIGHT_ACTION")
+        agent_task(f"player_{i}", f"game_{i % 2}", "NIGHT_WOLF_ACT")
         for i in range(5)
     ]
 
@@ -120,7 +123,7 @@ async def test_concurrent_isolation():
             errors.append(f"缺少 agent_id: {log}")
         if game_id is None:
             errors.append(f"缺少 game_id: {log}")
-        if phase != "NIGHT_ACTION":
+        if phase != "NIGHT_WOLF_ACT":
             errors.append(f"phase 不正确: {log}")
 
     if errors:

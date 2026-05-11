@@ -25,10 +25,10 @@ class TestVillagerRoleActions:
 
     def test_villager_has_no_special_actions(self, villager) -> None:
         """村民 can_act 始终返回 False（无专属动作）。"""
-        assert villager.can_act(GamePhase.NIGHT_ACTION, ActionType.WOLF_KILL) is False
-        assert villager.can_act(GamePhase.NIGHT_ACTION, ActionType.SEER_CHECK) is False
-        assert villager.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_SAVE) is False
-        assert villager.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_POISON) is False
+        assert villager.can_act(GamePhase.NIGHT_WOLF_ACT, ActionType.WOLF_KILL) is False
+        assert villager.can_act(GamePhase.NIGHT_SEER_ACT, ActionType.SEER_CHECK) is False
+        assert villager.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_SAVE) is False
+        assert villager.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_POISON) is False
         assert villager.can_act(GamePhase.HUNTER_SHOOT, ActionType.WOLF_KILL) is False
 
     def test_villager_can_speak_day(self, villager) -> None:
@@ -41,7 +41,7 @@ class TestVillagerRoleActions:
 
     def test_villager_cannot_act_at_night(self, villager) -> None:
         """村民在夜间不能执行技能动作。"""
-        assert villager.validate_action(GamePhase.NIGHT_ACTION, ActionType.WOLF_KILL) is False
+        assert villager.validate_action(GamePhase.NIGHT_WOLF_ACT, ActionType.WOLF_KILL) is False
 
     def test_dead_villager_cannot_speak(self, villager) -> None:
         """死亡村民不能发言。"""

@@ -135,4 +135,4 @@ class TestAllRolesAreInstantiable:
         from ai_werewolf_core.schemas.enums import ActionType, GamePhase
 
         role = create_role(role_type, "player_test")
-        assert role.can_perform_common_action(GamePhase.NIGHT_ACTION, ActionType.PASS) is True
+        assert role.can_perform_common_action(GamePhase.NIGHT_WOLF_ACT, ActionType.PASS) is True

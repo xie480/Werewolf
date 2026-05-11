@@ -24,23 +24,28 @@ class TestHunterRoleActions:
     """猎人专属动作校验。"""
 
     def test_hunter_can_shoot(self, hunter) -> None:
-        """猎人在 HUNTER_SHOOT 阶段可以开枪（复用 WOLF_KILL）。"""
-        assert hunter.can_act(GamePhase.HUNTER_SHOOT, ActionType.WOLF_KILL) is True
+        """猎人在 HUNTER_SHOOT 阶段可以开枪。"""
+        hunter.die()
+        assert hunter.can_act(GamePhase.HUNTER_SHOOT, ActionType.HUNTER_SHOOT) is True
 
     def test_hunter_cannot_shoot_in_night(self, hunter) -> None:
         """猎人在夜间不能开枪。"""
-        assert hunter.can_act(GamePhase.NIGHT_ACTION, ActionType.WOLF_KILL) is False
+        hunter.die()
+        assert hunter.can_act(GamePhase.NIGHT_WOLF_ACT, ActionType.HUNTER_SHOOT) is False
 
     def test_hunter_cannot_shoot_in_day_discussion(self, hunter) -> None:
         """猎人在白天讨论阶段不能开枪。"""
-        assert hunter.can_act(GamePhase.DAY_DISCUSSION, ActionType.WOLF_KILL) is False
+        hunter.die()
+        assert hunter.can_act(GamePhase.DAY_DISCUSSION, ActionType.HUNTER_SHOOT) is False
 
     def test_hunter_cannot_shoot_in_day_vote(self, hunter) -> None:
         """猎人在白天投票阶段不能开枪。"""
-        assert hunter.can_act(GamePhase.DAY_VOTE, ActionType.WOLF_KILL) is False
+        hunter.die()
+        assert hunter.can_act(GamePhase.DAY_VOTE, ActionType.HUNTER_SHOOT) is False
 
     def test_hunter_cannot_use_other_action_types(self, hunter) -> None:
-        """猎人在 HUNTER_SHOOT 阶段仅能执行 WOLF_KILL。"""
+        """猎人在 HUNTER_SHOOT 阶段仅能执行 HUNTER_SHOOT。"""
+        hunter.die()
         assert hunter.can_act(GamePhase.HUNTER_SHOOT, ActionType.SEER_CHECK) is False
         assert hunter.can_act(GamePhase.HUNTER_SHOOT, ActionType.WITCH_SAVE) is False
 
@@ -58,7 +63,8 @@ class TestHunterCommonActions:
 
     def test_hunter_validate_action_shoot(self, hunter) -> None:
         """猎人的 validate_action 在 HUNTER_SHOOT 阶段返回 True。"""
-        assert hunter.validate_action(GamePhase.HUNTER_SHOOT, ActionType.WOLF_KILL) is True
+        hunter.die()
+        assert hunter.validate_action(GamePhase.HUNTER_SHOOT, ActionType.HUNTER_SHOOT) is True
 
 
 class TestHunterRoleAttributes:

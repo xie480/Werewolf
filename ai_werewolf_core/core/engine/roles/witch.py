@@ -28,7 +28,7 @@ class WitchRole(BaseRole):
 
     **校验逻辑（can_act）**:
     1. 必须存活。
-    2. 必须在 ``NIGHT_ACTION`` 阶段。
+    2. 必须在 ``NIGHT_WITCH_ACT`` 阶段。
     3. ``WITCH_SAVE`` → ``has_antidote`` 必须为 ``True``。
     4. ``WITCH_POISON`` → ``has_poison`` 必须为 ``True``。
 
@@ -73,7 +73,7 @@ class WitchRole(BaseRole):
         """
         if not self.is_alive:
             return False
-        if phase != GamePhase.NIGHT_ACTION:
+        if phase != GamePhase.NIGHT_WITCH_ACT:
             return False
         if action_type == ActionType.WITCH_SAVE and self.has_antidote:
             return True

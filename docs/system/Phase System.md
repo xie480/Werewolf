@@ -12,7 +12,9 @@ class GamePhase(str, Enum):
 
     # 夜晚阶段
     NIGHT_START = "NIGHT_START"       # 黑夜降临播报
-    NIGHT_ACTION = "NIGHT_ACTION"     # 并发执行：狼人刀、预言家验、女巫救/毒
+    NIGHT_WOLF_ACT = "NIGHT_WOLF_ACT" # 狼人行动阶段
+    NIGHT_WITCH_ACT = "NIGHT_WITCH_ACT" # 女巫行动阶段
+    NIGHT_SEER_ACT = "NIGHT_SEER_ACT" # 预言家行动阶段
     NIGHT_RESOLVE = "NIGHT_RESOLVE"   # 系统结算夜间伤亡（不让LLM参与）
 
     # 白天阶段
@@ -35,7 +37,7 @@ class GamePhase(str, Enum):
 #### 2. Process_Window (行动处理窗口)
 *   **动作**：唤醒拥有当前阶段行动权的 Agent，触发 LangGraph 子图运行。
 *   **模式 A（串行/Sequential）**：如 `DAY_DISCUSSION`。引擎按照特定的顺序（如死者左手边开始），依次唤醒 Agent_1 -> Agent_2，前一个发言落库后，再给下一个 Agent 构建 Context。
-*   **模式 B（并发/Concurrent）**：如 `NIGHT_ACTION` 或 `DAY_VOTE`。引擎同时唤醒所有存活/有技能的 Agent，使用异步任务`asyncio.gather`）同时请求 LLM。
+*   **模式 B（并发/Concurrent）**：如 `DAY_VOTE`。引擎同时唤醒所有存活/有技能的 Agent，使用异步任务`asyncio.gather`）同时请求 LLM。
 #### 3. Exit_Condition (流转检查器)
 *   **动作**：判定是否满足离开当前 Phase 的条件。
 *   **举例**：
@@ -47,7 +49,7 @@ class GamePhase(str, Enum):
 ```text
 INIT
 │
-├──▶ NIGHT_START ──▶ NIGHT_ACTION ──▶ NIGHT_RESOLVE
+├──▶ NIGHT_START ──▶ NIGHT_WOLF_ACT ──▶ NIGHT_WITCH_ACT ──▶ NIGHT_SEER_ACT ──▶ NIGHT_RESOLVE
 │                                        │
 │                                        ▼
 │    ┌───────────────────────────────────┘
@@ -82,7 +84,7 @@ INIT
     3.  仅唤醒 3号和5号 进行一轮发言（更新发言 Prompt：“你正在与X号进行PK，请拉票”）。
     4.  再动态插入`DAY_PK_VOTE`，除 3/5 号外的人再次投票。若再次平局，则今日无人出局，直接强制切入 `NIGHT_START`。
 #### 2. Agent 离线/超时死锁 (Timeout Blocking)
-*   **场景**：并发 `NIGHT_ACTION` 时，某个 Agent 的大模型接口一直转圈，或者内部 LangGraph 持续报错重试，导致整个 Phase 无法退出。
+*   **场景**：并发 `DAY_VOTE` 时，某个 Agent 的大模型接口一直转圈，或者内部 LangGraph 持续报错重试，导致整个 Phase 无法退出。
 *   **Phase 介入方案**：
     在 `Process_Window` 中引入**严格超时与默认流转机制**。
     ```python

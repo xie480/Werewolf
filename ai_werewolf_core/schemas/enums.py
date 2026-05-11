@@ -40,7 +40,9 @@ class GamePhase(str, Enum):
 
     # 夜晚阶段
     NIGHT_START = "NIGHT_START"         # 黑夜降临播报
-    NIGHT_ACTION = "NIGHT_ACTION"       # 执行夜间技能
+    NIGHT_WOLF_ACT = "NIGHT_WOLF_ACT"   # 狼人行动阶段
+    NIGHT_WITCH_ACT = "NIGHT_WITCH_ACT" # 女巫行动阶段
+    NIGHT_SEER_ACT = "NIGHT_SEER_ACT"   # 预言家行动阶段
     NIGHT_RESOLVE = "NIGHT_RESOLVE"     # 系统结算夜间伤亡（不允许 LLM 参与）
 
     # 白天阶段

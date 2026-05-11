@@ -45,8 +45,10 @@ class PhaseStateMachine:
         GamePhase.INIT: [GamePhase.NIGHT_START],
         
         # 夜晚阶段
-        GamePhase.NIGHT_START: [GamePhase.NIGHT_ACTION],
-        GamePhase.NIGHT_ACTION: [GamePhase.NIGHT_RESOLVE],
+        GamePhase.NIGHT_START: [GamePhase.NIGHT_WOLF_ACT],
+        GamePhase.NIGHT_WOLF_ACT: [GamePhase.NIGHT_WITCH_ACT],
+        GamePhase.NIGHT_WITCH_ACT: [GamePhase.NIGHT_SEER_ACT],
+        GamePhase.NIGHT_SEER_ACT: [GamePhase.NIGHT_RESOLVE],
         GamePhase.NIGHT_RESOLVE: [
             GamePhase.DAY_START
         ],

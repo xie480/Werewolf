@@ -1,7 +1,7 @@
 """预言家角色实现。
 
 **Why**: 预言家是好人阵营的核心信息角色，拥有夜间验人技能。
-其 :meth:`can_act` 仅允许在 ``NIGHT_ACTION`` 阶段执行 ``SEER_CHECK`` 动作，
+其 :meth:`can_act` 仅允许在 ``NIGHT_SEER_ACT`` 阶段执行 ``SEER_CHECK`` 动作，
 且必须处于存活状态。每夜仅能查验一次的限制由引擎层的 PhaseMachine 控制，
 不在角色层追踪，保持单一职责原则。
 """
@@ -19,7 +19,7 @@ class SeerRole(BaseRole):
     查验结果只有预言家本人知道（通过 ``PRIVATE`` 可见性事件推送）。
 
     **Why (角色层不追踪验人次数)**: 验人次数的限制是游戏流程层面的规则，
-    应由 PhaseMachine 在每轮 ``NIGHT_ACTION`` 阶段控制"已行动"标记，
+    应由 PhaseMachine 在每轮 ``NIGHT_SEER_ACT`` 阶段控制"已行动"标记，
     而非角色状态。这保持了单一职责原则，避免角色层与流程层耦合。
 
     Attributes:
@@ -42,6 +42,6 @@ class SeerRole(BaseRole):
         """
         if not self.is_alive:
             return False
-        if phase == GamePhase.NIGHT_ACTION and action_type == ActionType.SEER_CHECK:
+        if phase == GamePhase.NIGHT_SEER_ACT and action_type == ActionType.SEER_CHECK:
             return True
         return False

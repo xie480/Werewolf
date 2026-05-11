@@ -44,7 +44,7 @@ class TestCommonActionsWhenAlive:
 
     def test_speak_during_night_is_denied(self, villager: BaseRole) -> None:
         """存活玩家在夜间不能发言。"""
-        assert villager.can_perform_common_action(GamePhase.NIGHT_ACTION, ActionType.SPEAK) is False
+        assert villager.can_perform_common_action(GamePhase.NIGHT_WOLF_ACT, ActionType.SPEAK) is False
 
     def test_vote_during_day_vote(self, villager: BaseRole) -> None:
         """存活玩家在 DAY_VOTE 阶段可以投票。"""
@@ -60,7 +60,7 @@ class TestCommonActionsWhenAlive:
 
     def test_pass_in_any_phase(self, villager: BaseRole) -> None:
         """存活玩家在所有阶段都可以 PASS。"""
-        phases = [GamePhase.NIGHT_ACTION, GamePhase.DAY_DISCUSSION, GamePhase.DAY_VOTE, GamePhase.INIT]
+        phases = [GamePhase.NIGHT_WOLF_ACT, GamePhase.DAY_DISCUSSION, GamePhase.DAY_VOTE, GamePhase.INIT]
         for phase in phases:
             assert villager.can_perform_common_action(phase, ActionType.PASS) is True
 
@@ -86,7 +86,7 @@ class TestCommonActionsWhenDead:
     def test_dead_cannot_pass(self, villager: BaseRole) -> None:
         """死亡玩家不能 PASS（死亡后不能执行任何动作）。"""
         villager.die()
-        assert villager.can_perform_common_action(GamePhase.NIGHT_ACTION, ActionType.PASS) is False
+        assert villager.can_perform_common_action(GamePhase.NIGHT_WOLF_ACT, ActionType.PASS) is False
 
 
 # ------------------------------------------------------------------
@@ -103,7 +103,7 @@ class TestValidateAction:
 
     def test_validate_role_specific_action(self, villager: BaseRole) -> None:
         """validate_action 对村民尝试技能动作返回 False。"""
-        assert villager.validate_action(GamePhase.NIGHT_ACTION, ActionType.WOLF_KILL) is False
+        assert villager.validate_action(GamePhase.NIGHT_WOLF_ACT, ActionType.WOLF_KILL) is False
 
     def test_validate_dead_player(self, villager: BaseRole) -> None:
         """validate_action 对死亡玩家返回 False。"""

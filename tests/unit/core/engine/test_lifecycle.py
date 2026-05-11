@@ -171,9 +171,9 @@ class TestAdvancePhase:
         await lifecycle.init_game()
         await lifecycle.start_game()
 
-        # 从 NIGHT_START 推进到 NIGHT_ACTION
-        await lifecycle.advance_phase(GamePhase.NIGHT_ACTION)
-        assert lifecycle.state_machine.current_phase == GamePhase.NIGHT_ACTION
+        # 从 NIGHT_START 推进到 NIGHT_WOLF_ACT
+        await lifecycle.advance_phase(GamePhase.NIGHT_WOLF_ACT)
+        assert lifecycle.state_machine.current_phase == GamePhase.NIGHT_WOLF_ACT
 
     @pytest.mark.asyncio
     async def test_advance_phase_when_init_raises(self, lifecycle):
@@ -216,7 +216,7 @@ class TestAdvancePhase:
         captured.clear()
 
         await lifecycle.advance_phase(
-            GamePhase.NIGHT_ACTION,
+            GamePhase.NIGHT_WOLF_ACT,
             context={"wolf_target": "player_3"},
         )
 
@@ -378,7 +378,9 @@ class TestLifecycleFullFlow:
         assert lifecycle.state_machine.round == 1
 
         # 3. 夜晚流程
-        await lifecycle.advance_phase(GamePhase.NIGHT_ACTION)
+        await lifecycle.advance_phase(GamePhase.NIGHT_WOLF_ACT)
+        await lifecycle.advance_phase(GamePhase.NIGHT_WITCH_ACT)
+        await lifecycle.advance_phase(GamePhase.NIGHT_SEER_ACT)
         await lifecycle.advance_phase(GamePhase.NIGHT_RESOLVE)
         await lifecycle.advance_phase(GamePhase.DAY_START)
         assert lifecycle.state_machine.current_phase == GamePhase.DAY_START

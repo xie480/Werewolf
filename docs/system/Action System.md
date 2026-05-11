@@ -74,10 +74,10 @@ class AgentAction(BaseModel):
 *   如果是投票阶段失败 -> 强制输出`{"action_type": "VOTE", "target_id": null}` (弃权)
 *   如果是夜间技能失败 -> 强制输出`{"action_type": "PASS", "target_id": null}` (空过)
 ---
-### 五、 并发动作池处理 (Action Pool / 专为黑夜阶段设计)
-在白天，发言和投票大多是顺序或公开的；但在**黑夜阶段**，狼人、预言家、女巫的动作是**并发推理（Concurrent Reasoning）**的。
-Action System 需要提供一个**Action Pool（动作池）**机制：
-1. 夜晚开始，引擎并发唤醒所有有夜间行动权的 Agent。
-2. Action System 接收各个 Agent 的 `AgentAction`，存入缓存池。
-3. 等待所有 Agent 提交完毕（或到达最大超时时间 60 秒）。
-4. **统一封包**，将一个包含多个动作的 List 打包发送给上一层的 `Game Engine -> Action Resolver` 进行统一时序结算（如前文提到的先算刀、再算救）。
+### 五、 动作池处理 (Action Pool / 专为多狼并发设计)
+在夜晚阶段，整体流程是**串行**的（狼人 -> 女巫 -> 预言家）。但是，如果存在多匹狼人，狼人内部的刀人决策可以是**并发推理（Concurrent Reasoning）**的。
+Action System 需要提供一个**Action Pool（动作池）**机制来处理多狼并发：
+1. 进入 `NIGHT_WOLF_ACT` 阶段，引擎并发唤醒所有存活的狼人 Agent。
+2. Action System 接收各个狼人 Agent 的 `AgentAction`，存入缓存池。
+3. 等待所有狼人提交完毕（或到达最大超时时间 60 秒）。
+4. **统一封包**，将包含多个刀人动作的 List 打包发送给上一层的 `Game Engine -> Action Resolver` 进行意见统一（如少数服从多数，或默认第一刀）。

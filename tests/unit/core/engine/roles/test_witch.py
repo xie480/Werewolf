@@ -27,11 +27,11 @@ class TestWitchRoleActions:
 
     def test_witch_can_save_at_night(self, witch) -> None:
         """女巫在夜间可以使用解药。"""
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_SAVE) is True
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_SAVE) is True
 
     def test_witch_can_poison_at_night(self, witch) -> None:
         """女巫在夜间可以使用毒药。"""
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_POISON) is True
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_POISON) is True
 
     def test_witch_cannot_act_during_day(self, witch) -> None:
         """女巫在白天不能使用任何药品。"""
@@ -41,16 +41,20 @@ class TestWitchRoleActions:
         assert witch.can_act(GamePhase.DAY_VOTE, ActionType.WITCH_POISON) is False
 
     def test_witch_cannot_act_in_non_action_night_phases(self, witch) -> None:
-        """女巫仅在 NIGHT_ACTION 阶段可用药。"""
+        """女巫仅在 NIGHT_WITCH_ACT 阶段可用药。"""
         assert witch.can_act(GamePhase.NIGHT_START, ActionType.WITCH_SAVE) is False
+        assert witch.can_act(GamePhase.NIGHT_WOLF_ACT, ActionType.WITCH_SAVE) is False
+        assert witch.can_act(GamePhase.NIGHT_SEER_ACT, ActionType.WITCH_SAVE) is False
         assert witch.can_act(GamePhase.NIGHT_RESOLVE, ActionType.WITCH_SAVE) is False
         assert witch.can_act(GamePhase.NIGHT_START, ActionType.WITCH_POISON) is False
+        assert witch.can_act(GamePhase.NIGHT_WOLF_ACT, ActionType.WITCH_POISON) is False
+        assert witch.can_act(GamePhase.NIGHT_SEER_ACT, ActionType.WITCH_POISON) is False
         assert witch.can_act(GamePhase.NIGHT_RESOLVE, ActionType.WITCH_POISON) is False
 
     def test_witch_cannot_use_other_skills(self, witch) -> None:
         """女巫不能执行其他角色的专属动作。"""
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.WOLF_KILL) is False
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.SEER_CHECK) is False
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WOLF_KILL) is False
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.SEER_CHECK) is False
 
 
 class TestWitchItemConsumption:
@@ -69,12 +73,12 @@ class TestWitchItemConsumption:
     def test_cannot_use_antidote_twice(self, witch) -> None:
         """解药使用后不能再次使用。"""
         witch.use_antidote()
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_SAVE) is False
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_SAVE) is False
 
     def test_cannot_use_poison_twice(self, witch) -> None:
         """毒药使用后不能再次使用。"""
         witch.use_poison()
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_POISON) is False
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_POISON) is False
 
     def test_use_antidote_raises_when_already_used(self, witch) -> None:
         """重复使用解药抛出 ValueError。"""
@@ -92,13 +96,13 @@ class TestWitchItemConsumption:
         """使用解药不影响毒药的可用性。"""
         witch.use_antidote()
         assert witch.has_poison is True
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_POISON) is True
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_POISON) is True
 
     def test_using_poison_does_not_affect_antidote(self, witch) -> None:
         """使用毒药不影响解药的可用性。"""
         witch.use_poison()
         assert witch.has_antidote is True
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_SAVE) is True
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_SAVE) is True
 
 
 class TestWitchDeath:
@@ -107,12 +111,12 @@ class TestWitchDeath:
     def test_dead_witch_cannot_save(self, witch) -> None:
         """死亡女巫不能使用解药。"""
         witch.die()
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_SAVE) is False
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_SAVE) is False
 
     def test_dead_witch_cannot_poison(self, witch) -> None:
         """死亡女巫不能使用毒药。"""
         witch.die()
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_POISON) is False
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_POISON) is False
 
     def test_revived_witch_can_use_remaining_items(self, witch) -> None:
         """复活后女巫仍可使用未消费的药品。"""
@@ -120,8 +124,8 @@ class TestWitchDeath:
         witch.die()
         witch.revive()
         # 解药已用，毒药仍在
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_SAVE) is False
-        assert witch.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_POISON) is True
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_SAVE) is False
+        assert witch.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.WITCH_POISON) is True
 
 
 class TestWitchCommonActions:
@@ -137,7 +141,7 @@ class TestWitchCommonActions:
 
     def test_witch_cannot_wolf_kill(self, witch) -> None:
         """女巫不能执行狼人刀人动作。"""
-        assert witch.validate_action(GamePhase.NIGHT_ACTION, ActionType.WOLF_KILL) is False
+        assert witch.validate_action(GamePhase.NIGHT_WITCH_ACT, ActionType.WOLF_KILL) is False
 
 
 class TestWitchRoleAttributes:

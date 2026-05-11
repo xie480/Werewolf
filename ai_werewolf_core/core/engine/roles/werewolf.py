@@ -1,7 +1,7 @@
 """狼人角色实现。
 
 **Why**: 狼人是游戏的核心反派角色，拥有夜间刀人技能。
-其 :meth:`can_act` 仅允许在 ``NIGHT_ACTION`` 阶段执行 ``WOLF_KILL`` 动作，
+其 :meth:`can_act` 仅允许在 ``NIGHT_WOLF_ACT`` 阶段执行 ``WOLF_KILL`` 动作，
 且必须处于存活状态。
 """
 
@@ -19,7 +19,7 @@ class WerewolfRole(BaseRole):
 
     **校验逻辑**:
     1. 必须存活（死亡狼人不能刀人）。
-    2. 必须在 ``NIGHT_ACTION`` 阶段。
+    2. 必须在 ``NIGHT_WOLF_ACT`` 阶段。
     3. 动作类型必须是 ``WOLF_KILL``。
 
     Attributes:
@@ -46,6 +46,6 @@ class WerewolfRole(BaseRole):
         """
         if not self.is_alive:
             return False
-        if phase == GamePhase.NIGHT_ACTION and action_type == ActionType.WOLF_KILL:
+        if phase == GamePhase.NIGHT_WOLF_ACT and action_type == ActionType.WOLF_KILL:
             return True
         return False

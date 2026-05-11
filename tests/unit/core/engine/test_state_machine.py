@@ -80,13 +80,15 @@ class TestValidTransitions:
     @pytest.mark.asyncio
     async def test_full_night_cycle(self, state_machine):
         """
-        完整的夜晚流程: INIT -> NIGHT_START -> NIGHT_ACTION -> NIGHT_RESOLVE -> DAY_START。
+        完整的夜晚流程: INIT -> NIGHT_START -> NIGHT_WOLF_ACT -> NIGHT_WITCH_ACT -> NIGHT_SEER_ACT -> NIGHT_RESOLVE -> DAY_START。
 
         **Why**: 验证夜晚阶段从开始到结算的完整链路，确保所有迁移均合法。
         """
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+        await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_WITCH_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_SEER_ACT)
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
         await state_machine.transition_to(GamePhase.DAY_START)
 
@@ -98,7 +100,9 @@ class TestValidTransitions:
         # 先进入 DAY_START
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+        await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_WITCH_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_SEER_ACT)
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
         await state_machine.transition_to(GamePhase.DAY_START)
         await state_machine.transition_to(GamePhase.DAY_DISCUSSION)
@@ -110,56 +114,63 @@ class TestValidTransitions:
 
     @pytest.mark.asyncio
     async def test_vote_pk_branch(self, state_machine):
-        """投票平票 PK 分支: DAY_VOTE -> DAY_PK_DISCUSSION -> DAY_PK_VOTE -> GAME_OVER。"""
+        """投票平票 PK 分支: DAY_VOTE -> DAY_PK_DISCUSSION -> DAY_PK_VOTE -> VOTE_RESOLVE -> GAME_OVER。"""
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+        await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_WITCH_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_SEER_ACT)
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
         await state_machine.transition_to(GamePhase.DAY_START)
         await state_machine.transition_to(GamePhase.DAY_DISCUSSION)
         await state_machine.transition_to(GamePhase.DAY_VOTE)
         await state_machine.transition_to(GamePhase.DAY_PK_DISCUSSION)
         await state_machine.transition_to(GamePhase.DAY_PK_VOTE)
+        await state_machine.transition_to(GamePhase.VOTE_RESOLVE)
         await state_machine.transition_to(GamePhase.GAME_OVER)
 
         assert state_machine.current_phase == GamePhase.GAME_OVER
 
     @pytest.mark.asyncio
     async def test_hunter_shoot_branch(self, state_machine):
-        """猎人开枪分支: VOTE_RESOLVE -> HUNTER_SHOOT -> LAST_WORDS -> GAME_OVER。"""
+        """猎人开枪分支: VOTE_RESOLVE -> HUNTER_SHOOT -> GAME_OVER。"""
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+        await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_WITCH_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_SEER_ACT)
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
         await state_machine.transition_to(GamePhase.DAY_START)
         await state_machine.transition_to(GamePhase.DAY_DISCUSSION)
         await state_machine.transition_to(GamePhase.DAY_VOTE)
         await state_machine.transition_to(GamePhase.VOTE_RESOLVE)
         await state_machine.transition_to(GamePhase.HUNTER_SHOOT)
-        await state_machine.transition_to(GamePhase.LAST_WORDS)
         await state_machine.transition_to(GamePhase.GAME_OVER)
 
         assert state_machine.current_phase == GamePhase.GAME_OVER
 
     @pytest.mark.asyncio
     async def test_last_words_from_day_vote(self, state_machine):
-        """遗言分支 (从 DAY_VOTE 直接进入): DAY_VOTE -> LAST_WORDS -> GAME_OVER。"""
+        """遗言分支 (从 VOTE_RESOLVE 进入): DAY_VOTE -> VOTE_RESOLVE -> LAST_WORDS -> NIGHT_START。"""
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+        await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_WITCH_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_SEER_ACT)
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
         await state_machine.transition_to(GamePhase.DAY_START)
         await state_machine.transition_to(GamePhase.DAY_DISCUSSION)
         await state_machine.transition_to(GamePhase.DAY_VOTE)
+        await state_machine.transition_to(GamePhase.VOTE_RESOLVE)
         await state_machine.transition_to(GamePhase.LAST_WORDS)
-        await state_machine.transition_to(GamePhase.GAME_OVER)
+        await state_machine.transition_to(GamePhase.NIGHT_START)
 
-        assert state_machine.current_phase == GamePhase.GAME_OVER
+        assert state_machine.current_phase == GamePhase.NIGHT_START
 
     @pytest.mark.asyncio
     async def test_game_over_to_night_starts_new_round(self, state_machine):
         """
-        GAME_OVER -> NIGHT_START 应该递增轮次 (新的一轮)。
+        GAME_OVER -> INIT -> NIGHT_START 应该递增轮次 (新的一轮)。
 
         **Why**: 这是多轮游戏的循环机制，确保每轮的天黑阶段正确标记轮次递增。
         """
@@ -168,7 +179,9 @@ class TestValidTransitions:
         assert state_machine.round == 1
 
         # 快速推进到 GAME_OVER
-        await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+        await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_WITCH_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_SEER_ACT)
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
         await state_machine.transition_to(GamePhase.DAY_START)
         await state_machine.transition_to(GamePhase.DAY_DISCUSSION)
@@ -177,6 +190,7 @@ class TestValidTransitions:
         await state_machine.transition_to(GamePhase.GAME_OVER)
 
         # 新一轮
+        await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
         assert state_machine.round == 2
 
@@ -185,7 +199,9 @@ class TestValidTransitions:
         """GAME_OVER -> None 表示对局彻底结束 (无后续阶段)。"""
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+        await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_WITCH_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_SEER_ACT)
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
         await state_machine.transition_to(GamePhase.DAY_START)
         await state_machine.transition_to(GamePhase.DAY_DISCUSSION)
@@ -209,7 +225,13 @@ class TestValidTransitions:
         assert state_machine.round == 1
 
         # 后续子阶段不应递增轮次
-        await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+        await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
+        assert state_machine.round == 1
+
+        await state_machine.transition_to(GamePhase.NIGHT_WITCH_ACT)
+        assert state_machine.round == 1
+
+        await state_machine.transition_to(GamePhase.NIGHT_SEER_ACT)
         assert state_machine.round == 1
 
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
@@ -237,34 +259,38 @@ class TestInvalidTransitions:
         assert exc_info.value.target_state == GamePhase.DAY_DISCUSSION
 
     @pytest.mark.asyncio
-    async def test_night_action_to_day_discussion_raises(self, state_machine):
-        """从 NIGHT_ACTION 跳过 NIGHT_RESOLVE 和 DAY_START 应抛出异常。"""
+    async def test_night_wolf_act_to_day_discussion_raises(self, state_machine):
+        """从 NIGHT_WOLF_ACT 跳过后续阶段直接到 DAY_DISCUSSION 应抛出异常。"""
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+        await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
 
         with pytest.raises(InvalidTransitionError):
             await state_machine.transition_to(GamePhase.DAY_DISCUSSION)
 
     @pytest.mark.asyncio
-    async def test_day_discussion_to_night_action_raises(self, state_machine):
-        """从 DAY_DISCUSSION 逆序跳回 NIGHT_ACTION 应抛出异常。"""
+    async def test_day_discussion_to_night_wolf_act_raises(self, state_machine):
+        """从 DAY_DISCUSSION 逆序跳回 NIGHT_WOLF_ACT 应抛出异常。"""
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+        await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_WITCH_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_SEER_ACT)
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
         await state_machine.transition_to(GamePhase.DAY_START)
         await state_machine.transition_to(GamePhase.DAY_DISCUSSION)
 
         with pytest.raises(InvalidTransitionError):
-            await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+            await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
 
     @pytest.mark.asyncio
     async def test_game_over_to_day_discussion_raises(self, state_machine):
         """从 GAME_OVER 跳回 DAY_DISCUSSION 应抛出异常。"""
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        await state_machine.transition_to(GamePhase.NIGHT_ACTION)
+        await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_WITCH_ACT)
+        await state_machine.transition_to(GamePhase.NIGHT_SEER_ACT)
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
         await state_machine.transition_to(GamePhase.DAY_START)
         await state_machine.transition_to(GamePhase.DAY_DISCUSSION)

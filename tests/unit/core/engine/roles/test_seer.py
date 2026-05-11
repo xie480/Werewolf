@@ -25,8 +25,8 @@ class TestSeerRoleActions:
     """预言家专属动作校验。"""
 
     def test_seer_can_check_at_night(self, seer) -> None:
-        """存活预言家在 NIGHT_ACTION 阶段可以验人。"""
-        assert seer.can_act(GamePhase.NIGHT_ACTION, ActionType.SEER_CHECK) is True
+        """存活预言家在 NIGHT_SEER_ACT 阶段可以验人。"""
+        assert seer.can_act(GamePhase.NIGHT_SEER_ACT, ActionType.SEER_CHECK) is True
 
     def test_seer_cannot_check_during_day(self, seer) -> None:
         """预言家在白天不能验人。"""
@@ -34,20 +34,22 @@ class TestSeerRoleActions:
         assert seer.can_act(GamePhase.DAY_VOTE, ActionType.SEER_CHECK) is False
 
     def test_seer_cannot_check_in_other_night_phases(self, seer) -> None:
-        """预言家仅在 NIGHT_ACTION 阶段可以验人。"""
+        """预言家仅在 NIGHT_SEER_ACT 阶段可以验人。"""
         assert seer.can_act(GamePhase.NIGHT_START, ActionType.SEER_CHECK) is False
+        assert seer.can_act(GamePhase.NIGHT_WOLF_ACT, ActionType.SEER_CHECK) is False
+        assert seer.can_act(GamePhase.NIGHT_WITCH_ACT, ActionType.SEER_CHECK) is False
         assert seer.can_act(GamePhase.NIGHT_RESOLVE, ActionType.SEER_CHECK) is False
 
     def test_seer_cannot_use_other_skills(self, seer) -> None:
         """预言家不能执行其他角色的专属动作。"""
-        assert seer.can_act(GamePhase.NIGHT_ACTION, ActionType.WOLF_KILL) is False
-        assert seer.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_SAVE) is False
-        assert seer.can_act(GamePhase.NIGHT_ACTION, ActionType.WITCH_POISON) is False
+        assert seer.can_act(GamePhase.NIGHT_SEER_ACT, ActionType.WOLF_KILL) is False
+        assert seer.can_act(GamePhase.NIGHT_SEER_ACT, ActionType.WITCH_SAVE) is False
+        assert seer.can_act(GamePhase.NIGHT_SEER_ACT, ActionType.WITCH_POISON) is False
 
     def test_dead_seer_cannot_check(self, seer) -> None:
         """死亡预言家不能验人。"""
         seer.die()
-        assert seer.can_act(GamePhase.NIGHT_ACTION, ActionType.SEER_CHECK) is False
+        assert seer.can_act(GamePhase.NIGHT_SEER_ACT, ActionType.SEER_CHECK) is False
 
     def test_seer_validate_action_includes_common(self, seer) -> None:
         """预言家的 validate_action 也支持通用动作。"""
@@ -56,7 +58,7 @@ class TestSeerRoleActions:
 
     def test_seer_validate_at_night(self, seer) -> None:
         """预言家 validate_action 在夜间返回 True。"""
-        assert seer.validate_action(GamePhase.NIGHT_ACTION, ActionType.SEER_CHECK) is True
+        assert seer.validate_action(GamePhase.NIGHT_SEER_ACT, ActionType.SEER_CHECK) is True
 
 
 class TestSeerRoleAttributes:
