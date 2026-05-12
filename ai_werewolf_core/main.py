@@ -19,6 +19,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_werewolf_core.api.routes import games, players, events
+from ai_werewolf_core.api.ws.manager import connection_manager
+from ai_werewolf_core.api.ws.routes import router as ws_router
+from ai_werewolf_core.core.event.bus import event_bus
 from ai_werewolf_core.db.session import close_db_engine
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
@@ -113,6 +116,13 @@ app.include_router(players.router, prefix="/api/games", tags=["Players"])
 
 # P2: 事件查询
 app.include_router(events.router, prefix="/api/games", tags=["Events"])
+
+# Phase 3 后续: WebSocket 实时推送
+app.include_router(ws_router, tags=["WebSocket"])
+
+# 注册 WebSocket 连接管理器为 EventBus 全局订阅者
+# 每当新事件发布时，自动推送给已连接的 WebSocket 客户端
+event_bus.subscribe_all(connection_manager.on_event)
 
 
 # ============================================================================
