@@ -322,7 +322,7 @@ Do not write redundant comments that only describe obvious syntax.
 |---|---|---|
 | Phase 1 | 已完成 | 基础设施: DB ORM, Pydantic Schema, Event Bus, Redis Lua 脚本 |
 | Phase 2 | 已完成 | 纯规则 Game Engine: 状态机、动作校验、胜负判定、角色能力 |
-| Phase 3 | 进行中 | 异步通信: FastAPI 接口、WebSocket 推送、Celery Worker |
+| Phase 3 | 已完成 | 异步通信: FastAPI 接口、WebSocket 推送、Celery Worker |
 | Phase 4 | 进行中 | Agent Runtime: LangGraph 工作流、Memory、Model Adapter |
 | Phase 5 | 待开始 | 评测复盘: structlog 排障、Evaluator 五维评分 |
 
