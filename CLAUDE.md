@@ -312,10 +312,10 @@ Do not write redundant comments that only describe obvious syntax.
 
 | 阶段 | 状态 | 内容 |
 |---|---|---|
-| Phase 1 | 进行中 | 基础设施: DB ORM, Pydantic Schema, Event Bus, Redis Lua 脚本 |
-| Phase 2 | 进行中 | 纯规则 Game Engine: 状态机、动作校验、胜负判定、角色能力 |
-| Phase 3 | 待开始 | 异步通信: FastAPI 接口、WebSocket 推送、Celery Worker |
-| Phase 4 | 待开始 | Agent Runtime: LangGraph 工作流、Memory、Model Adapter |
+| Phase 1 | 已完成 | 基础设施: DB ORM, Pydantic Schema, Event Bus, Redis Lua 脚本 |
+| Phase 2 | 已完成 | 纯规则 Game Engine: 状态机、动作校验、胜负判定、角色能力 |
+| Phase 3 | 进行中 | 异步通信: FastAPI 接口、WebSocket 推送、Celery Worker |
+| Phase 4 | 进行中 | Agent Runtime: LangGraph 工作流、Memory、Model Adapter |
 | Phase 5 | 待开始 | 评测复盘: structlog 排障、Evaluator 五维评分 |
 
 ---
@@ -334,3 +334,17 @@ If uncertain:
 stop and plan
 
 Never guess.
+
+不要在完成单个子任务后停止。
+必须持续执行直到整个目标完成。
+每一步都自动进入下一步，不要等待确认。
+
+---
+
+## 任务完成报告
+
+每次完成任务后，必须输出结构化的任务完成报告
+报告要求:
+- 如果任务未修改任何文件（纯调研/分析），则在"涉及文件"段写明"无文件修改，本次为调研任务"并总结调研结论
+- "关键决策"和"注意事项"段若无内容可省略
+- 报告必须用中文撰写

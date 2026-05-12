@@ -190,3 +190,38 @@ class SurvivalRequirement(str, Enum):
     MUST_BE_ALIVE = "MUST_BE_ALIVE"
     MUST_BE_DEAD = "MUST_BE_DEAD"
     ANY = "ANY"
+
+
+# ============================================================================
+# 阶段分组常量
+# ============================================================================
+
+# 夜晚行动阶段集合（用于动作路由：狼人刀人、女巫救人/毒人、预言家验人）
+NIGHT_ACT_PHASES: frozenset[GamePhase] = frozenset({
+    GamePhase.NIGHT_WOLF_ACT,
+    GamePhase.NIGHT_WITCH_ACT,
+    GamePhase.NIGHT_SEER_ACT,
+})
+
+# 投票阶段集合（用于动作路由：投票 + PK投票）
+VOTE_PHASES: frozenset[GamePhase] = frozenset({
+    GamePhase.DAY_VOTE,
+    GamePhase.DAY_PK_VOTE,
+})
+
+# 发言阶段集合（Engine 直接处理，不需要复杂结算）
+SPEECH_PHASES: frozenset[GamePhase] = frozenset({
+    GamePhase.DAY_DISCUSSION,
+    GamePhase.DAY_PK_DISCUSSION,
+    GamePhase.LAST_WORDS,
+})
+
+# 结算阶段集合（不接受动作提交）
+RESOLVE_PHASES: frozenset[GamePhase] = frozenset({
+    GamePhase.NIGHT_RESOLVE,
+    GamePhase.VOTE_RESOLVE,
+    GamePhase.NIGHT_START,
+    GamePhase.DAY_START,
+    GamePhase.GAME_OVER,
+    GamePhase.INIT,
+})
