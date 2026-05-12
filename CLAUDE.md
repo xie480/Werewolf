@@ -192,6 +192,10 @@ Agents may only access authorized memory.
 - 所有 SQL 表定义汇总于 [`docs/db/sql table.md`](docs/db/sql table.md)，作为 Schema 设计的唯一参考来源
 - **新增 SQL 表必须先在该文档中声明**，包含表名、列定义、关联关系、枚举值参考，再在 `db/models.py` 中新增 ORM 模型类，最后通过 Alembic 生成迁移
 
+### Plan 管理
+- 所有架构规划文档统一放在 [`docs/plan/`](docs/plan/) 目录下
+- **需要规划架构时，必须先在 `docs/plan/` 中创建 plan 文件**，经审批后再开始实施代码
+
 ### Event Sourcing (事件溯源)
 - 所有对局事实通过 `EventBus` 发布，全局订阅者自动完成 DB 持久化和日志记录
 - 热数据缓存于 Redis Stream (`werewolf:events:{game_id}`)，MAXLEN ~1000 近似裁剪
