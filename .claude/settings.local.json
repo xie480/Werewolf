@@ -3,7 +3,9 @@
     "allow": [
       "Bash(python -m pytest tests/unit/core/engine/ -v)",
       "Bash(python -m pytest tests/unit/core/engine/test_lifecycle.py -v --tb=short)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(python -m pytest \"F:\\\\YilenaCode\\\\Werewolf\\\\tests\" --tb=short)",
+      "Bash(python:*)"
     ]
   }
 }

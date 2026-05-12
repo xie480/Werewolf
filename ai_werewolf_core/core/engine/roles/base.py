@@ -13,7 +13,13 @@ from abc import ABC, abstractmethod
 
 import structlog
 
-from ai_werewolf_core.schemas.enums import ActionType, Faction, GamePhase, Role
+from ai_werewolf_core.schemas.enums import (
+    ActionType,
+    Faction,
+    GamePhase,
+    Role,
+    SurvivalRequirement,
+)
 
 
 class BaseRole(ABC):
@@ -145,6 +151,38 @@ class BaseRole(ABC):
         if self.can_act(phase, action_type):
             return True
         return False
+
+    # ------------------------------------------------------------------
+    # 生存状态需求声明
+    # ------------------------------------------------------------------
+
+    def get_survival_requirement(
+        self, action_type: ActionType | str
+    ) -> SurvivalRequirement:
+        """返回此角色对指定动作类型的生存状态要求。
+
+        **Why**: 集中式 ActionValidator 在生存状态校验环节调用此方法，
+        获取角色声明的约束，然后去 Redis BitMap 验证实际状态。
+        规则由角色定义（开闭原则），校验由防火墙执行（职责分离）。
+
+        兼容字符串和枚举类型：AgentAction 的 ``use_enum_values = True``
+        会将 action_type 序列化为字符串，此处统一转换为枚举进行比较。
+
+        默认行为：PASS 动作不校验生存状态，其余动作要求存活。
+        子类覆盖此方法以声明不同的约束（如猎人 HUNTER_SHOOT 要求死亡）。
+
+        Args:
+            action_type: 待校验的动作类型（ActionType 枚举或字符串值）。
+
+        Returns:
+            SurvivalRequirement 枚举值。
+        """
+        # 兼容字符串输入（use_enum_values = True 时 action_type 为字符串）
+        if isinstance(action_type, str):
+            action_type = ActionType(action_type)
+        if action_type == ActionType.PASS:
+            return SurvivalRequirement.ANY
+        return SurvivalRequirement.MUST_BE_ALIVE
 
     # ------------------------------------------------------------------
     # 生命周期管理

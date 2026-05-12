@@ -8,7 +8,13 @@ Action Resolver 根据死亡原因判定，不在角色层处理。
 from __future__ import annotations
 
 from ai_werewolf_core.core.engine.roles.base import BaseRole
-from ai_werewolf_core.schemas.enums import ActionType, Faction, GamePhase, Role
+from ai_werewolf_core.schemas.enums import (
+    ActionType,
+    Faction,
+    GamePhase,
+    Role,
+    SurvivalRequirement,
+)
 
 
 class HunterRole(BaseRole):
@@ -47,3 +53,27 @@ class HunterRole(BaseRole):
         if phase == GamePhase.HUNTER_SHOOT and action_type == ActionType.HUNTER_SHOOT:
             return True
         return False
+
+    def get_survival_requirement(
+        self, action_type: ActionType | str
+    ) -> SurvivalRequirement:
+        """返回猎人对指定动作类型的生存状态要求。
+
+        覆盖基类默认实现：HUNTER_SHOOT 要求角色必须死亡，
+        其余动作沿用基类的默认行为（MUST_BE_ALIVE，PASS 为 ANY）。
+
+        兼容字符串和枚举类型（AgentAction 的 use_enum_values = True
+        会将 action_type 序列化为字符串）。
+
+        Args:
+            action_type: 待校验的动作类型（ActionType 枚举或字符串值）。
+
+        Returns:
+            SurvivalRequirement 枚举值。
+        """
+        # 兼容字符串输入
+        if isinstance(action_type, str):
+            action_type = ActionType(action_type)
+        if action_type == ActionType.HUNTER_SHOOT:
+            return SurvivalRequirement.MUST_BE_DEAD
+        return super().get_survival_requirement(action_type)

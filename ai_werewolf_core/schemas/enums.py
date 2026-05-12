@@ -172,3 +172,21 @@ class Faction(str, Enum):
 
     VILLAGER = "VILLAGER"
     WEREWOLF = "WEREWOLF"
+
+
+class SurvivalRequirement(str, Enum):
+    """角色对动作的生存状态要求。
+
+    **Why**: 集中式 ActionValidator 需要知道"当前角色对此动作要求存活还是死亡"，
+    但不能在 Validator 中硬编码角色逻辑。通过枚举让每个角色声明自己的需求，
+    Validator 只负责查 Redis BitMap 并比对。
+
+    用于 ActionValidator 的生存状态校验环节：
+    - MUST_BE_ALIVE → Validator 拒绝已死亡的玩家
+    - MUST_BE_DEAD  → Validator 拒绝仍存活的玩家
+    - ANY           → 不校验生存状态（如 PASS 动作）
+    """
+
+    MUST_BE_ALIVE = "MUST_BE_ALIVE"
+    MUST_BE_DEAD = "MUST_BE_DEAD"
+    ANY = "ANY"
