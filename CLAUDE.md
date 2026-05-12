@@ -188,6 +188,10 @@ Agents may only access authorized memory.
 - **实体持久化 ID** (玩家、对局、事件记录等) → `utils/snowflake.py` (雪花算法，改善 B-Tree 索引写入性能)
 - **事件时序 seq_num** → `utils/redis_seq.py` (Redis INCR 原子递增，保证多 Worker 全局时序)
 
+### SQL 表管理
+- 所有 SQL 表定义汇总于 [`docs/db/sql table.md`](docs/db/sql table.md)，作为 Schema 设计的唯一参考来源
+- **新增 SQL 表必须先在该文档中声明**，包含表名、列定义、关联关系、枚举值参考，再在 `db/models.py` 中新增 ORM 模型类，最后通过 Alembic 生成迁移
+
 ### Event Sourcing (事件溯源)
 - 所有对局事实通过 `EventBus` 发布，全局订阅者自动完成 DB 持久化和日志记录
 - 热数据缓存于 Redis Stream (`werewolf:events:{game_id}`)，MAXLEN ~1000 近似裁剪
