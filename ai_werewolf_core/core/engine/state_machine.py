@@ -24,10 +24,13 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import redis.asyncio as aioredis
+from sqlalchemy import update
 
 from ai_werewolf_core.constant.redis_keys import RedisKeys
 from ai_werewolf_core.core.engine.exceptions import InvalidTransitionError
 from ai_werewolf_core.core.event.bus import EventBus
+from ai_werewolf_core.db.models import GameRecord
+from ai_werewolf_core.db.session import async_session_factory
 from ai_werewolf_core.schemas.enums import EventType, GamePhase, Visibility
 from ai_werewolf_core.schemas.models import Event
 from ai_werewolf_core.utils.logger import bind_game_context, get_logger
@@ -194,7 +197,11 @@ class PhaseStateMachine:
             ) from e
 
     async def _save_context(self, phase: Optional[GamePhase], round_num: int) -> None:
-        """保存当前对局上下文到 Redis。
+        """保存当前对局上下文到 Redis 并同步 DB（Write-Through 模式）。
+
+        先写 Redis 缓存层，成功后同步更新 PostgreSQL GameRecord 表。
+        如果 DB 写入失败，Redis 中的数据仍然有效（最终一致性），
+        仅记录 ERROR 日志。
 
         Args:
             phase: 当前游戏阶段（None 表示尚未开始）。
@@ -218,6 +225,8 @@ class PhaseStateMachine:
                     phase=phase_value,
                     round=round_num,
                 )
+                # Write-Through: 同步更新 DB GameRecord
+                await self._sync_context_to_db(phase, round_num)
                 return
             except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
                 self._logger.warning(
@@ -235,6 +244,42 @@ class PhaseStateMachine:
                 raise RedisUnavailableException(
                     f"Redis 返回错误响应: {e}"
                 ) from e
+
+    async def _sync_context_to_db(
+        self, phase: Optional[GamePhase], round_num: int
+    ) -> None:
+        """Write-Through: 将阶段和轮次同步写入 PostgreSQL GameRecord 表。
+
+        采用最终一致性策略：DB 写入失败不阻塞 Redis 已成功的数据，
+        仅记录 ERROR 日志，后续可通过对账修复。
+
+        Args:
+            phase: 当前游戏阶段（None 表示尚未开始）。
+            round_num: 当前轮次。
+        """
+        try:
+            async with async_session_factory() as session:
+                stmt = (
+                    update(GameRecord)
+                    .where(GameRecord.id == self.game_id)
+                    .values(phase=phase, round=round_num)
+                )
+                await session.execute(stmt)
+                await session.commit()
+                self._logger.debug(
+                    "context_synced_to_db",
+                    phase=phase.value if phase else None,
+                    round=round_num,
+                )
+        except Exception as e:
+            # DB 写入失败不阻塞主流程——Redis 中的数据仍然有效
+            self._logger.error(
+                "DB 上下文同步失败（Redis 已更新，存在短暂不一致）",
+                phase=phase.value if phase else None,
+                round=round_num,
+                error=str(e),
+                exc_info=True,
+            )
 
     async def init_context(self) -> None:
         """初始化对局上下文到 Redis（首次对局时由 LifecycleManager 调用）。
@@ -362,6 +407,9 @@ class PhaseStateMachine:
                 target_state=next_phase,
             )
         # status == "OK": 迁移成功，继续后续流程
+
+        # 4. Write-Through: 同步更新 DB GameRecord（阶段和轮次）
+        await self._sync_context_to_db(next_phase, new_round)
 
         # 5. 记录日志
         logger.info(

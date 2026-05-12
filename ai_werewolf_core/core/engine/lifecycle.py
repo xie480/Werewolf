@@ -207,6 +207,37 @@ class LifecycleManager:
                 exc_info=True,
             )
 
+    async def _insert_game_record_to_db(self) -> None:
+        """Write-Through: 在对局初始化时向 PostgreSQL 插入 GameRecord 行。
+
+        使用 Snowflake ID 作为主键，与 Redis 中 game_id 保持一致。
+        初始状态: status=INIT, phase=INIT, round=0。
+
+        如果 GameRecord 已存在（如重试场景），记录 WARNING 日志并跳过，
+        避免因主键冲突导致初始化失败。
+        """
+        try:
+            async with async_session_factory() as session:
+                record = GameRecord(
+                    id=self.game_id,
+                    status=GameStatus.INIT,
+                    phase=GamePhase.INIT,
+                    round=0,
+                )
+                session.add(record)
+                await session.commit()
+                self._logger.info(
+                    "game_record_created",
+                    game_id=self.game_id,
+                )
+        except Exception as e:
+            # 主键冲突（重复初始化）不视为致命错误
+            self._logger.warning(
+                "GameRecord 创建失败（可能已存在），将继续使用现有记录",
+                game_id=self.game_id,
+                error=str(e),
+            )
+
     # ------------------------------------------------------------------
     # 公开属性
     # ------------------------------------------------------------------
@@ -365,12 +396,21 @@ class LifecycleManager:
         成功后将状态变更为 ``START`` 并广播事件。
         同时初始化阶段状态机的 Redis 上下文。
 
+        **Write-Through 双写**:
+            1. 先 INSERT GameRecord 到 PostgreSQL（创建持久化行）
+            2. 再写入 Redis Hash 上下文（缓存层）
+            3. 后续状态迁移通过 Lua 脚本原子更新 Redis + 同步 UPDATE DB
+
         Raises:
             InvalidTransitionError: 当前状态不是 ``INIT``。
         """
         self._logger.info("game_init")
 
-        # 初始化 Redis 对局上下文（首次写入）
+        # Step 0: Write-Through —— 先向 PostgreSQL 插入 GameRecord 行
+        # 确保后续 _set_status_to_db() 的 UPDATE 有目标行可更新
+        await self._insert_game_record_to_db()
+
+        # Step 1: 初始化 Redis 对局上下文（首次写入）
         key = self._context_key()
         redis = await self._get_redis()
         await redis.hset(key, mapping={
@@ -483,6 +523,25 @@ class LifecycleManager:
             raise RedisUnavailableException(
                 f"无法设置 GAME_OVER 阶段: game_id={self.game_id}"
             ) from e
+
+        # Write-Through: 同步更新 DB GameRecord.phase = GAME_OVER
+        try:
+            async with async_session_factory() as session:
+                stmt = (
+                    update(GameRecord)
+                    .where(GameRecord.id == self.game_id)
+                    .values(phase=GamePhase.GAME_OVER)
+                )
+                await session.execute(stmt)
+                await session.commit()
+                self._logger.debug("game_over_phase_synced_to_db")
+        except Exception as e:
+            self._logger.error(
+                "DB GAME_OVER 阶段同步失败",
+                game_id=self.game_id,
+                error=str(e),
+                exc_info=True,
+            )
 
         # Step 3: 发布 GAME_OVER 事件
         game_over_event = Event(

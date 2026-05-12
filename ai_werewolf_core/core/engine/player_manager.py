@@ -46,6 +46,7 @@ from ai_werewolf_core.schemas.enums import Faction, Role
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
 from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
+from ai_werewolf_core.utils.snowflake import get_snowflake
 
 logger = get_logger(__name__)
 
@@ -113,12 +114,18 @@ class PlayerStatusManager:
         game_id: str,
         players: Dict[str, dict],
     ) -> None:
-        """批量初始化玩家数据到 Redis（开局时调用）。
+        """批量初始化玩家数据到 Redis 并同步写入 PostgreSQL（Write-Through 模式）。
 
-        使用 Pipeline 批量写入，减少网络往返次数。
+        使用 Pipeline 批量写入 Redis，减少网络往返次数。
         同时设置 TTL 防止数据永久残留。
+        Redis 写入成功后，批量 INSERT PlayerRecord 行到 PostgreSQL。
 
         每局游戏只应调用一次，通常在 LifecycleManager.start_game() 中触发。
+
+        **Write-Through 策略**:
+            1. 先写 Redis（缓存层优先，保证热数据可用）
+            2. 再写 PostgreSQL（持久层，作为 Source of Truth）
+            3. DB 写入失败不阻塞主流程，仅记录 ERROR 日志
 
         Args:
             game_id: 对局唯一标识。
@@ -137,7 +144,7 @@ class PlayerStatusManager:
         alive_key = RedisKeys.alive_bitmap(game_id)
 
         try:
-            # 使用 Pipeline 批量写入
+            # 使用 Pipeline 批量写入 Redis
             async with redis.pipeline() as pipe:
                 # 写入身份 Hash
                 for player_id, info in players.items():
@@ -159,7 +166,7 @@ class PlayerStatusManager:
                 await pipe.execute()
 
             logger.info(
-                "players_initialized",
+                "players_initialized_redis",
                 game_id=game_id,
                 player_count=len(players),
                 seats=[p["seat"] for p in players.values()],
@@ -173,6 +180,63 @@ class PlayerStatusManager:
             raise RedisUnavailableException(
                 f"Redis 返回错误响应: {e}"
             ) from e
+
+        # Write-Through: 批量 INSERT PlayerRecord 到 PostgreSQL
+        await self._init_players_to_db(game_id, players)
+
+    async def _init_players_to_db(
+        self, game_id: str, players: Dict[str, dict]
+    ) -> None:
+        """Write-Through: 将玩家数据批量写入 PostgreSQL PlayerRecord 表。
+
+        采用最终一致性策略：DB 写入失败不阻塞 Redis 已成功的数据，
+        仅记录 ERROR 日志。每条 PlayerRecord 使用独立的 Snowflake ID。
+
+        Args:
+            game_id: 对局唯一标识。
+            players: player_id → player_info 映射（已在 init_players 中校验过）。
+        """
+        snowflake = get_snowflake()
+        try:
+            async with async_session_factory() as session:
+                for player_id, info in players.items():
+                    # 将字符串角色名转换为 Role 枚举
+                    role_str = info.get("role", "UNKNOWN")
+                    try:
+                        role = Role(role_str)
+                    except ValueError:
+                        logger.warning(
+                            "无法识别的角色名，使用 UNKNOWN 降级",
+                            player_id=player_id,
+                            role_str=role_str,
+                        )
+                        role = Role.VILLAGER  # 安全降级为村民
+
+                    record = PlayerRecord(
+                        id=snowflake.next_id(),
+                        game_id=game_id,
+                        player_id=player_id,
+                        seat_number=info["seat"],
+                        role=role,
+                        is_alive=True,
+                    )
+                    session.add(record)
+
+                await session.commit()
+                logger.info(
+                    "players_initialized_db",
+                    game_id=game_id,
+                    player_count=len(players),
+                )
+        except Exception as e:
+            # DB 写入失败不阻塞主流程——Redis 中的数据仍然有效
+            logger.error(
+                "DB 玩家数据初始化失败（Redis 已更新，存在短暂不一致）",
+                game_id=game_id,
+                player_count=len(players),
+                error=str(e),
+                exc_info=True,
+            )
 
     @staticmethod
     def _validate_player_info(player_id: str, info: dict) -> None:
