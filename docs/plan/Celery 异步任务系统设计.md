@@ -159,7 +159,7 @@ celery -A worker.celery_app worker -Q eval  --loglevel=info --concurrency=2
 
 ---
 
-## 任务模块规划（Phase 4 实现）
+## 任务模块规划（Phase 3 已实现）
 
 ### tasks/game.py
 

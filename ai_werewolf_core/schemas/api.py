@@ -132,3 +132,59 @@ class ErrorResponse(BaseModel):
     error: str = Field(description="错误类型/简短描述")
     detail: Optional[str] = Field(default=None, description="详细错误信息")
     game_id: Optional[str] = Field(default=None, description="相关对局 ID")
+
+
+# ============================================================================
+# 投票/发言/技能操作 Schema
+# ============================================================================
+
+
+class SubmitVoteRequest(BaseModel):
+    """提交投票请求。
+
+    **Why**: 投票是白天阶段的核心操作。target_id 为 None 表示弃权。
+    """
+
+    actor_id: str = Field(description="投票人 ID")
+    target_id: Optional[str] = Field(default=None, description="被投人 ID，None 表示弃权")
+
+
+class VoteStatusResponse(BaseModel):
+    """投票状态响应 —— 当前选票快照。"""
+
+    game_id: str
+    votes: dict = Field(default_factory=dict, description="voter_id → target_id 映射")
+    voter_count: int = Field(default=0, description="已投票人数")
+    is_pk_vote: bool = Field(default=False, description="是否为 PK 投票")
+
+
+class SubmitSpeechRequest(BaseModel):
+    """提交发言请求。
+
+    **Why**: 发言是白天讨论阶段的核心操作。emotion 可选，由 Agent 自行选择情绪。
+    """
+
+    actor_id: str = Field(description="发言人 ID")
+    content: str = Field(min_length=1, max_length=2000, description="发言内容")
+    emotion: Optional[str] = Field(default=None, description="情绪标签，如 CONFIDENT、ANXIOUS 等")
+
+
+class SubmitActionRequest(BaseModel):
+    """提交夜间技能请求。
+
+    **Why**: 夜间技能（狼刀/女巫救毒/预言家查验/猎人开枪）通过统一接口提交，
+    action_type 使用 ActionType 枚举值校验。
+    """
+
+    actor_id: str = Field(description="行动者 ID")
+    action_type: str = Field(description="动作类型，如 WOLF_KILL、WITCH_SAVE、SEER_CHECK")
+    target_id: Optional[str] = Field(default=None, description="目标玩家 ID，PASS 时为 None")
+
+
+class ActionResponse(BaseModel):
+    """技能操作响应。"""
+
+    success: bool = Field(default=True, description="操作是否成功")
+    action_type: str = Field(description="执行的动作类型")
+    actor_id: str = Field(description="行动者 ID")
+    target_id: Optional[str] = Field(default=None, description="目标玩家 ID")

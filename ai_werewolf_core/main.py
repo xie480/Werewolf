@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from ai_werewolf_core.api.routes import games, players, events
+from ai_werewolf_core.api.routes import games, players, events, actions
 from ai_werewolf_core.api.ws.manager import connection_manager
 from ai_werewolf_core.api.ws.routes import router as ws_router
 from ai_werewolf_core.core.event.bus import event_bus
@@ -116,6 +116,9 @@ app.include_router(players.router, prefix="/api/games", tags=["Players"])
 
 # P2: 事件查询
 app.include_router(events.router, prefix="/api/games", tags=["Events"])
+
+# P3: 玩家操作（投票、发言、技能）
+app.include_router(actions.router, prefix="/api/games", tags=["Actions"])
 
 # Phase 3 后续: WebSocket 实时推送
 app.include_router(ws_router, tags=["WebSocket"])

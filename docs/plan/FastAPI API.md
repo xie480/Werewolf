@@ -26,6 +26,7 @@
 | `ai_werewolf_core/api/routes/games.py` | **新增** | 对局管理路由（创建、启动、推进、查询、中止） |
 | `ai_werewolf_core/api/routes/players.py` | **新增** | 玩家查询路由 |
 | `ai_werewolf_core/api/routes/events.py` | **新增** | 事件查询路由 |
+| `ai_werewolf_core/api/routes/actions.py` | **新增 (Phase 3 补全)** | 玩家操作路由（投票、发言、技能） |
 | `ai_werewolf_core/schemas/api.py` | **新增** | API 专有 Pydantic 模型（请求/响应 Schema，与 `models.py` 核心模型分离） |
 
 ---

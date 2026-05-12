@@ -468,6 +468,7 @@ class VoteManager:
         # ── 记录选票到 Redis Hash（原子检测+写入+TTL） ──
         target_value = action.target_id or ""  # 空字符串表示弃权
         try:
+            key = self._vote_key()  # 添加缺失的key变量定义
             result = await LuaScriptManager.evalsha(
                 "vote_submit",
                 keys=[key],

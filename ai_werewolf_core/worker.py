@@ -64,11 +64,14 @@ celery_app.conf.update(
 )
 
 # ============================================================================
-# 预留任务模块导入
+# 任务模块导入
 # ============================================================================
 
+# Phase 3: 对局生命周期任务
+import ai_werewolf_core.tasks.game   # noqa: F401
+
 # Phase 4 完成后导入具体任务模块:
-# import ai_werewolf_core.tasks.game   # noqa: F401
-# import ai_werewolf_core.tasks.agent  # noqa: F401
+import ai_werewolf_core.tasks.agent  # noqa: F401 - Agent 推理（Phase 4 占位）
+import ai_werewolf_core.tasks.eval   # noqa: F401 - 评测统计（Phase 5 占位）
 
 logger.info("celery_app_initialized", broker=settings.redis_url)
