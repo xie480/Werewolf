@@ -1,3 +1,4 @@
+"""
 tests/test_api_games.py  — 对局生命周期 API 测试
 
 **Why**: 验证 games.py 路由的所有端点（创建/查询/启动/推进/中止/列表/加入）。
@@ -13,12 +14,13 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 from ai_werewolf_core.main import app
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def client():
     """创建 httpx AsyncClient，绑定 FastAPI app。"""
     transport = ASGITransport(app=app)

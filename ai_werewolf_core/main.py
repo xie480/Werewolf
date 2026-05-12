@@ -25,6 +25,7 @@ from ai_werewolf_core.core.event.bus import event_bus
 from ai_werewolf_core.db.session import close_db_engine
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
+from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
 
 logger = get_logger(__name__)
 
@@ -56,6 +57,10 @@ async def lifespan(app: FastAPI):
         redis = await RedisClientManager.get_client()
         await redis.ping()
         logger.info("redis_connection_verified")
+        
+        # 加载所有 Lua 脚本
+        await LuaScriptManager.load_all_scripts()
+        logger.info("lua_scripts_loaded")
     except Exception as e:
         logger.warning("redis_connection_failed_at_startup", error=str(e))
 

@@ -258,17 +258,19 @@ class PhaseStateMachine:
             round_num: 当前轮次。
         """
         try:
+            db_phase = phase if phase is not None else GamePhase.INIT
+            self._logger.debug("syncing_context_to_db_attempt", phase=db_phase.value, round=round_num)
             async with async_session_factory() as session:
                 stmt = (
                     update(GameRecord)
                     .where(GameRecord.id == self.game_id)
-                    .values(phase=phase, round=round_num)
+                    .values(phase=db_phase, round=round_num)
                 )
                 await session.execute(stmt)
                 await session.commit()
                 self._logger.debug(
                     "context_synced_to_db",
-                    phase=phase.value if phase else None,
+                    phase=db_phase.value,
                     round=round_num,
                 )
         except Exception as e:
@@ -380,8 +382,9 @@ class PhaseStateMachine:
 
         # 3. 原子阶段迁移（Lua 脚本：加载→校验→更新 一次完成）
         # 将 VALID_TRANSITIONS 序列化为 JSON 传入 Lua，Python 侧保持权威来源
+        self._logger.debug("serializing_transitions", transitions=self.VALID_TRANSITIONS)
         transitions_json = json.dumps({
-            str(k.value) if k else "None": [str(v.value) for v in vals]
+            str(k.value) if k else "None": [str(v.value) if v else "None" for v in vals]
             for k, vals in self.VALID_TRANSITIONS.items()
         })
         old_phase_str = old_phase.value if old_phase else "None"
