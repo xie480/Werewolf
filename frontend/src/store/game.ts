@@ -594,6 +594,7 @@ export const useGameStore = defineStore('game', () => {
     pendingAction,
     announcement,
     error,
+    phaseCountdown,
     // 计算属性
     isRunning,
     canStart,
