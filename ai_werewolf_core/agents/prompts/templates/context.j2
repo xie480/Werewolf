@@ -1,0 +1,25 @@
+【绝对事实：系统反馈】
+（注意：以下信息是系统的绝对事实，你的任何推理都不能违背以下信息）
+{% for feedback in system_feedbacks %}
+- [{{ feedback.phase.value }}] {{ feedback.description }}
+{% endfor %}
+
+【公共事件日志】
+以下是游戏开始至今的公共事件记录：
+{% for event in public_timeline %}
+- [{{ event.phase.value }}] {{ event.description }}
+{% endfor %}
+
+【你的历史推理】
+以下是你之前的内心OS摘要，供你参考保持逻辑连贯：
+{% for reasoning in historical_reasoning %}
+- {{ reasoning }}
+{% endfor %}
+
+{% if experiences %}
+【经验引用】
+以下是你从过往对局中总结的经验教训，请在本次决策中参考：
+{% for exp in experiences %}
+- {{ exp }}
+{% endfor %}
+{% endif %}

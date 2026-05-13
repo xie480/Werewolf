@@ -104,6 +104,7 @@ class MemorySnapshot(BaseModel):
     public_timeline: List[PublicEventLog] = Field(..., description="裁剪后的公共时间线")
     private_state: PrivateState = Field(..., description="当前私有状态")
     historical_reasoning: List[str] = Field(default_factory=list, description="历史内心OS摘要")
+    experiences: List[str] = Field(default_factory=list, description="从 RAG 检索到的历史经验")
 
 
 class SpeechContent(BaseModel):

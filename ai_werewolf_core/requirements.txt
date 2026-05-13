@@ -20,6 +20,7 @@ langgraph
 langchain
 openai
 tiktoken
+jinja2
 
 # 工具与日志
 structlog
