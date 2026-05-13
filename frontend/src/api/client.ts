@@ -187,3 +187,17 @@ export async function apiPostQuery<T>(
   const response = await fetchWithTimeout(url, { method: 'POST' })
   return response.json() as Promise<T>
 }
+
+/**
+ * 发送 DELETE 请求并解析 JSON 响应体。
+ *
+ * @param path API 路径
+ * @returns 解析后的 JSON 响应体
+ * @throws ApiError 请求失败时抛出
+ */
+export async function apiDelete<T>(
+  path: string,
+): Promise<T> {
+  const response = await fetchWithTimeout(`${API_BASE}${path}`, { method: 'DELETE' })
+  return response.json() as Promise<T>
+}

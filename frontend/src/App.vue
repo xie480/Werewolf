@@ -10,9 +10,10 @@
 import { ref } from 'vue'
 import GameLobby from './views/GameLobby.vue'
 import GameBoard from './views/GameBoard.vue'
+import ModelManagementView from './views/ModelManagementView.vue'
 
-/** 当前视图: 'lobby' | 'game' */
-const currentView = ref<'lobby' | 'game'>('lobby')
+/** 当前视图: 'lobby' | 'game' | 'models' */
+const currentView = ref<'lobby' | 'game' | 'models'>('lobby')
 
 /** 当前进入的对局 ID */
 const activeGameId = ref<string>('')
@@ -31,14 +32,34 @@ function handleLeaveGame(): void {
 </script>
 
 <template>
+  <div v-if="currentView === 'lobby' || currentView === 'models'" class="absolute top-4 right-4 z-50 flex gap-2">
+    <button
+      v-if="currentView === 'lobby'"
+      @click="currentView = 'models'"
+      class="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700 text-sm"
+    >
+      模型管理
+    </button>
+    <button
+      v-if="currentView === 'models'"
+      @click="currentView = 'lobby'"
+      class="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700 text-sm"
+    >
+      返回大厅
+    </button>
+  </div>
+
   <GameLobby
     v-if="currentView === 'lobby'"
     @enter-game="handleEnterGame"
   />
   <GameBoard
-    v-else
+    v-else-if="currentView === 'game'"
     :game-id="activeGameId"
     @leave="handleLeaveGame"
+  />
+  <ModelManagementView
+    v-else-if="currentView === 'models'"
   />
 </template>
 
