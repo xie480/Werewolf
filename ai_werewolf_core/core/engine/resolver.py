@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
 from ai_werewolf_core.core.engine.exceptions import (
@@ -40,6 +39,7 @@ from ai_werewolf_core.schemas.enums import (
 from ai_werewolf_core.schemas.models import AgentAction, Event
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
+from ai_werewolf_core.utils.time_utils import now_tz
 
 logger = get_logger(__name__)
 
@@ -551,7 +551,7 @@ class ActionResolver:
                 event_type=EventType.PLAYER_DEATH,
                 visibility=Visibility.PUBLIC,
                 target_agents=[player_id],  # 死亡玩家本人——用于触发遗言等逻辑
-                timestamp=datetime.now(timezone.utc),
+                timestamp=now_tz(),
                 payload={
                     "player_id": player_id,
                     "death_reason": death_reasons[player_id].value,

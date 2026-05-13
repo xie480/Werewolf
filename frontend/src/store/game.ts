@@ -81,6 +81,69 @@ export const useGameStore = defineStore('game', () => {
   /** 错误信息 */
   const error = ref<string | null>(null)
 
+  /** 阶段倒计时剩余秒数（0 表示未启动或已到期） */
+  const phaseCountdown = ref<number>(0)
+
+  /** 倒计时定时器 ID（用于清理） */
+  let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+  /** 倒计时到期回调（用于提前终止） */
+  let countdownResolve: (() => void) | null = null
+
+
+  // ------------------------------------------------------------------
+  // 内部函数: 阶段倒计时
+  // ------------------------------------------------------------------
+
+  /**
+   * 根据阶段确定倒计时时长（秒）。
+   *
+   * NIGHT_START → 狼人行动仅需 3 秒播报，其余阶段默认 60 秒。
+   * 如果当前阶段不接受动作提交（结算阶段），则设为 3 秒快速通过。
+   */
+  function _getCountdownSeconds(currentPhase: string | null): number {
+    if (!currentPhase) return 60
+    if (currentPhase === GamePhase.NIGHT_START) return 3
+    // 结算阶段不接受动作，快速通过
+    if (currentPhase === GamePhase.NIGHT_RESOLVE) return 3
+    if (currentPhase === GamePhase.VOTE_RESOLVE) return 3
+    if (currentPhase === GamePhase.DAY_START) return 3
+    if (currentPhase === GamePhase.GAME_OVER) return 0
+    return 60
+  }
+
+  /** 启动阶段倒计时，到期后自动调用 advancePhase */
+  function startPhaseCountdown(): void {
+    // 先清理旧定时器
+    stopPhaseCountdown()
+
+    const seconds = _getCountdownSeconds(phase.value)
+    if (seconds <= 0) return  // GAME_OVER 等无需倒计时
+
+    phaseCountdown.value = seconds
+
+    countdownTimer = setInterval(() => {
+      phaseCountdown.value--
+      if (phaseCountdown.value <= 0) {
+        stopPhaseCountdown()
+        // 倒计时到期，自动推进阶段
+        advancePhase()
+      }
+    }, 1_000)
+  }
+
+  /** 停止并清理倒计时定时器 */
+  function stopPhaseCountdown(): void {
+    if (countdownTimer !== null) {
+      clearInterval(countdownTimer)
+      countdownTimer = null
+    }
+    phaseCountdown.value = 0
+    if (countdownResolve) {
+      countdownResolve()
+      countdownResolve = null
+    }
+  }
 
   // ------------------------------------------------------------------
   // 计算属性

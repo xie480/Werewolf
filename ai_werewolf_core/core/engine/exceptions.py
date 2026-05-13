@@ -91,9 +91,10 @@ class ActionValidationError(Exception):
     def __init__(self, action: AgentAction, reason: str) -> None:
         self.action = action
         self.reason = reason
+        action_type_str = getattr(action.action_type, 'value', action.action_type)
         super().__init__(
             f"行动校验失败 [actor={action.actor_id}, "
-            f"action={action.action_type.value}]: {reason}"
+            f"action={action_type_str}]: {reason}"
         )
 
 

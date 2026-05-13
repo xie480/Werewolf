@@ -23,10 +23,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from ai_werewolf_core.core.event.bus import EventBus
+from ai_werewolf_core.utils.time_utils import now_tz
 from ai_werewolf_core.core.engine.exceptions import ActionValidationError
 from ai_werewolf_core.core.engine.roles.base import BaseRole
 from ai_werewolf_core.core.engine.roles.hunter import HunterRole
@@ -286,7 +286,7 @@ class SpecialActionResolver:
             event_type=EventType.PLAYER_DEATH,
             visibility=Visibility.PUBLIC,
             target_agents=[target_id],
-            timestamp=datetime.now(timezone.utc),
+            timestamp=now_tz(),
             payload={
                 "player_id": target_id,
                 "death_reason": "HUNTER_SHOT",
@@ -306,7 +306,7 @@ class SpecialActionResolver:
             event_type=EventType.SYSTEM_ANNOUNCEMENT,
             visibility=Visibility.PUBLIC,
             target_agents=[],
-            timestamp=datetime.now(timezone.utc),
+            timestamp=now_tz(),
             payload={
                 "announcement_type": "hunter_shot",
                 "hunter_id": hunter_id,

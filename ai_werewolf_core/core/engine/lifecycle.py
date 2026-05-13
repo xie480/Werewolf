@@ -21,11 +21,12 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import Optional
 
 import redis.asyncio as aioredis
 from sqlalchemy import update
+
+from ai_werewolf_core.utils.time_utils import now_tz
 
 from ai_werewolf_core.config import settings
 from ai_werewolf_core.constant.redis_keys import RedisKeys
@@ -310,7 +311,7 @@ class LifecycleManager:
             event_type=EventType.SYSTEM_ANNOUNCEMENT,
             visibility=Visibility.PUBLIC,
             target_agents=[],
-            timestamp=datetime.now(timezone.utc),
+            timestamp=now_tz(),
             payload=payload,
         )
 
@@ -405,6 +406,13 @@ class LifecycleManager:
             InvalidTransitionError: 当前状态不是 ``INIT``。
         """
         self._logger.info("game_init")
+
+        current_status = await self.get_status()
+        if current_status != GameStatus.INIT:
+            raise InvalidTransitionError(
+                current_state=current_status,
+                target_state=GameStatus.START,
+            )
 
         # Step 0: Write-Through —— 先向 PostgreSQL 插入 GameRecord 行
         # 确保后续 _set_status_to_db() 的 UPDATE 有目标行可更新
@@ -551,7 +559,7 @@ class LifecycleManager:
             event_type=EventType.GAME_OVER_EVENT,
             visibility=Visibility.PUBLIC,
             target_agents=[],
-            timestamp=datetime.now(timezone.utc),
+            timestamp=now_tz(),
             payload={
                 "winner_faction": winner_faction,
             },

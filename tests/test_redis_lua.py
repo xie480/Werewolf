@@ -125,7 +125,7 @@ class TestLuaHsetWithTtl:
     """原子 HSET + EXPIRE Lua 脚本测试。"""
 
     @pytest.mark.asyncio
-    async def test_hset_with_ttl_sets_field_and_ttl(self, test_game_id):
+    async def test_hset_with_ttl_sets_field_and_ttl(self, test_game_id, redis_client):
         """应原子设置 Hash 字段并同时设置 TTL。"""
         key = f"test:hset_ttl:{test_game_id}"
         field = "player_1"
@@ -140,7 +140,7 @@ class TestLuaHsetWithTtl:
         assert result == 1
 
         # 验证字段已设置
-        client = await redis_client()
+        client = redis_client
         stored = await client.hget(key, field)
         assert stored == value
 
@@ -149,7 +149,7 @@ class TestLuaHsetWithTtl:
         assert 0 < actual_ttl <= ttl
 
     @pytest.mark.asyncio
-    async def test_hset_with_ttl_overwrites_existing(self, test_game_id):
+    async def test_hset_with_ttl_overwrites_existing(self, test_game_id, redis_client):
         """对同一 field 重复调用应覆盖已有值并刷新 TTL。"""
         key = f"test:hset_overwrite:{test_game_id}"
         field = "player_1"
@@ -163,7 +163,7 @@ class TestLuaHsetWithTtl:
             "hset_with_ttl", keys=[key], args=[field, "new_value", "120"]
         )
 
-        client = await redis_client()
+        client = redis_client
         stored = await client.hget(key, field)
         assert stored == "new_value"
 
@@ -215,13 +215,13 @@ class TestLuaVoteSubmit:
         assert result[1] == ""
 
     @pytest.mark.asyncio
-    async def test_ttl_is_set_on_vote(self, test_game_id):
+    async def test_ttl_is_set_on_vote(self, test_game_id, redis_client):
         """每次投票应刷新 TTL。"""
         key = f"test:vote:{test_game_id}:1"
         await LuaScriptManager.evalsha(
             "vote_submit", keys=[key], args=["player_1", "player_2", "60"]
         )
-        client = await redis_client()
+        client = redis_client
         ttl = await client.ttl(key)
         assert 0 < ttl <= 60
 
@@ -252,17 +252,16 @@ class TestLuaPhaseTransition:
             "GAME_OVER": ["INIT"],
         }
 
-    async def _setup_context(self, test_game_id: str, phase: str, round_num: int):
+    async def _setup_context(self, test_game_id: str, phase: str, round_num: int, client):
         """Helper: 初始化对局上下文 Hash。"""
         key = f"werewolf:game:{test_game_id}:context"
-        client = await redis_client()
         await client.hset(key, mapping={"phase": phase, "round": str(round_num)})
         return key
 
     @pytest.mark.asyncio
-    async def test_valid_transition_returns_ok(self, test_game_id, sample_transitions):
+    async def test_valid_transition_returns_ok(self, test_game_id, sample_transitions, redis_client):
         """合法迁移应返回 OK 状态并更新阶段。"""
-        key = await self._setup_context(test_game_id, "INIT", 0)
+        key = await self._setup_context(test_game_id, "INIT", 0, redis_client)
 
         result = await LuaScriptManager.evalsha(
             "phase_transition",
@@ -274,16 +273,16 @@ class TestLuaPhaseTransition:
         assert result[2] == "NIGHT_START"  # new_phase
 
         # 验证 Redis 中的值已更新
-        client = await redis_client()
+        client = redis_client
         phase = await client.hget(key, "phase")
         assert phase == "NIGHT_START"
         round_num = await client.hget(key, "round")
         assert round_num == "1"
 
     @pytest.mark.asyncio
-    async def test_invalid_transition_returns_error(self, test_game_id, sample_transitions):
+    async def test_invalid_transition_returns_error(self, test_game_id, sample_transitions, redis_client):
         """非法迁移应返回 INVALID_TRANSITION 状态，不修改数据。"""
-        key = await self._setup_context(test_game_id, "INIT", 0)
+        key = await self._setup_context(test_game_id, "INIT", 0, redis_client)
 
         result = await LuaScriptManager.evalsha(
             "phase_transition",
@@ -293,16 +292,16 @@ class TestLuaPhaseTransition:
         assert result[0] == "INVALID_TRANSITION"
 
         # 验证 Redis 中的值未被修改
-        client = await redis_client()
+        client = redis_client
         phase = await client.hget(key, "phase")
         assert phase == "INIT"
 
     @pytest.mark.asyncio
     async def test_phase_mismatch_detects_concurrent_change(
-        self, test_game_id, sample_transitions
+        self, test_game_id, sample_transitions, redis_client
     ):
         """当 expected_phase 与实际不一致时，应返回 PHASE_MISMATCH。"""
-        key = await self._setup_context(test_game_id, "DAY_START", 1)
+        key = await self._setup_context(test_game_id, "DAY_START", 1, redis_client)
 
         # expected 传入 INIT 但实际是 DAY_START
         result = await LuaScriptManager.evalsha(
@@ -314,10 +313,10 @@ class TestLuaPhaseTransition:
         assert result[1] == "DAY_START"  # actual current phase
 
     @pytest.mark.asyncio
-    async def test_initial_none_state_works(self, test_game_id, sample_transitions):
+    async def test_initial_none_state_works(self, test_game_id, sample_transitions, redis_client):
         """当 Hash 中无 phase 字段时，应视为 None 状态。"""
         key = f"werewolf:game:{test_game_id}:context"
-        client = await redis_client()
+        client = redis_client
         await client.hset(key, "round", "0")  # 不设置 phase
 
         result = await LuaScriptManager.evalsha(
@@ -329,10 +328,10 @@ class TestLuaPhaseTransition:
 
     @pytest.mark.asyncio
     async def test_concurrent_transitions_are_serialized(
-        self, test_game_id, sample_transitions
+        self, test_game_id, sample_transitions, redis_client
     ):
         """并发迁移应严格串行执行，只有一个成功，另一个检测到 PHASE_MISMATCH。"""
-        key = await self._setup_context(test_game_id, "INIT", 0)
+        key = await self._setup_context(test_game_id, "INIT", 0, redis_client)
 
         async def do_transition(next_phase, label):
             try:
@@ -379,17 +378,16 @@ class TestLuaStatusTransition:
             "ABORTED": [],
         }
 
-    async def _setup_context(self, test_game_id: str, status: str):
+    async def _setup_context(self, test_game_id: str, status: str, client):
         """Helper: 初始化对局上下文 Hash。"""
         key = f"werewolf:game:{test_game_id}:context"
-        client = await redis_client()
         await client.hset(key, mapping={"status": status, "phase": "None", "round": "0"})
         return key
 
     @pytest.mark.asyncio
-    async def test_valid_status_transition(self, test_game_id, sample_status_transitions):
+    async def test_valid_status_transition(self, test_game_id, sample_status_transitions, redis_client):
         """合法状态迁移应返回 OK 并更新 Redis。"""
-        key = await self._setup_context(test_game_id, "INIT")
+        key = await self._setup_context(test_game_id, "INIT", redis_client)
 
         result = await LuaScriptManager.evalsha(
             "status_transition",
@@ -401,14 +399,14 @@ class TestLuaStatusTransition:
         assert result[2] == "START"
 
         # 验证 Redis
-        client = await redis_client()
+        client = redis_client
         status = await client.hget(key, "status")
         assert status == "START"
 
     @pytest.mark.asyncio
-    async def test_invalid_status_transition(self, test_game_id, sample_status_transitions):
+    async def test_invalid_status_transition(self, test_game_id, sample_status_transitions, redis_client):
         """非法状态迁移应返回 INVALID_TRANSITION，不修改数据。"""
-        key = await self._setup_context(test_game_id, "FINISHED")
+        key = await self._setup_context(test_game_id, "FINISHED", redis_client)
 
         result = await LuaScriptManager.evalsha(
             "status_transition",
@@ -418,14 +416,14 @@ class TestLuaStatusTransition:
         assert result[0] == "INVALID_TRANSITION"
 
         # 验证数据未被修改
-        client = await redis_client()
+        client = redis_client
         status = await client.hget(key, "status")
         assert status == "FINISHED"
 
     @pytest.mark.asyncio
-    async def test_status_mismatch_detected(self, test_game_id, sample_status_transitions):
+    async def test_status_mismatch_detected(self, test_game_id, sample_status_transitions, redis_client):
         """当 expected 状态与实际不一致时，应返回 STATUS_MISMATCH。"""
-        key = await self._setup_context(test_game_id, "RUNNING")
+        key = await self._setup_context(test_game_id, "RUNNING", redis_client)
 
         result = await LuaScriptManager.evalsha(
             "status_transition",
@@ -437,11 +435,11 @@ class TestLuaStatusTransition:
 
     @pytest.mark.asyncio
     async def test_missing_status_defaults_to_init(
-        self, test_game_id, sample_status_transitions
+        self, test_game_id, sample_status_transitions, redis_client
     ):
         """当 Hash 中无 status 字段时，默认视为 INIT。"""
         key = f"werewolf:game:{test_game_id}:context"
-        client = await redis_client()
+        client = redis_client
         await client.hset(key, "phase", "None")  # 不设 status
 
         result = await LuaScriptManager.evalsha(

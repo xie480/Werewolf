@@ -1,3 +1,4 @@
+"""
 tests/test_api_actions.py  — 玩家操作 API 测试
 
 **Why**: 验证 actions.py 路由的投票/发言/技能端点。

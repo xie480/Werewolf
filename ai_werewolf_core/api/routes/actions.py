@@ -11,7 +11,6 @@ Engine 委托，不包含任何游戏逻辑。
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -42,6 +41,7 @@ from ai_werewolf_core.schemas.enums import (
 from ai_werewolf_core.schemas.models import AgentAction, Event
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
+from ai_werewolf_core.utils.time_utils import now_tz
 
 logger = get_logger(__name__)
 
@@ -252,7 +252,7 @@ async def submit_speech(game_id: str, request: SubmitSpeechRequest) -> ActionRes
             event_type=EventType.SPEECH_EVENT,
             visibility=Visibility.PUBLIC,
             target_agents=[],
-            timestamp=datetime.now(timezone.utc),
+            timestamp=now_tz(),
             payload={
                 "actor_id": request.actor_id,
                 "content": request.content,

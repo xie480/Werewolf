@@ -13,10 +13,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from ai_werewolf_core.schemas.enums import Role
+from ai_werewolf_core.utils.time_utils import now_tz
 from ai_werewolf_core.schemas.models import AgentAction
 
 
@@ -38,7 +39,7 @@ class RejectedAction:
     action: AgentAction
     reason: str
     rejector: str
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=now_tz)
     actor_role: Optional[Role] = None
 
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
+import pytest_asyncio
 
 from ai_werewolf_core.core.engine.exceptions import (
     GameNotRunnableError,
@@ -24,10 +25,11 @@ from ai_werewolf_core.core.engine.exceptions import (
 from ai_werewolf_core.core.engine.lifecycle import LifecycleManager
 from ai_werewolf_core.core.event.bus import EventBus
 from ai_werewolf_core.schemas.enums import EventType, GamePhase, GameStatus
+from ai_werewolf_core.utils.redis_client import RedisClientManager
 
 
-@pytest.fixture
-def event_bus():
+@pytest_asyncio.fixture
+async def event_bus():
     """提供独立的 EventBus 实例，屏蔽数据库持久化。"""
     bus = EventBus()
     # HACK: EventBus.__init__ registers _persist_to_db via subscribe_all().
@@ -41,31 +43,36 @@ def event_bus():
     ]
     bus._persist_to_db = AsyncMock()
     yield bus
-    bus.clear()
+    await bus.clear()
+    await RedisClientManager.close()
 
+
+import uuid
 
 @pytest.fixture
 def lifecycle(event_bus):
     """提供 LifecycleManager 实例。"""
-    return LifecycleManager(game_id="test_lifecycle_1", event_bus=event_bus)
+    return LifecycleManager(game_id=f"test_lifecycle_{uuid.uuid4().hex}", event_bus=event_bus)
 
 
 class TestInitialState:
     """初始状态验证。"""
 
-    def test_initial_status_is_init(self, lifecycle):
+    @pytest.mark.asyncio
+    async def test_initial_status_is_init(self, lifecycle):
         """新创建的 LifecycleManager 状态应为 INIT。"""
-        assert lifecycle.status == GameStatus.INIT
+        assert await lifecycle.get_status() == GameStatus.INIT
 
     def test_game_id_is_set(self, lifecycle):
         """game_id 应正确保存。"""
-        assert lifecycle.game_id == "test_lifecycle_1"
+        assert lifecycle.game_id.startswith("test_lifecycle_")
 
-    def test_state_machine_is_created(self, lifecycle):
+    @pytest.mark.asyncio
+    async def test_state_machine_is_created(self, lifecycle):
         """内部的 PhaseStateMachine 应在构造函数中创建。"""
         assert lifecycle.state_machine is not None
-        assert lifecycle.state_machine.current_phase is None
-        assert lifecycle.state_machine.round == 0
+        assert await lifecycle.state_machine.get_current_phase() is None
+        assert await lifecycle.state_machine.get_round() == 0
 
     def test_event_bus_is_set(self, lifecycle, event_bus):
         """event_bus 应正确保存。"""
@@ -79,7 +86,7 @@ class TestInitGame:
     async def test_init_game_from_init(self, lifecycle):
         """从 INIT 调用 init_game 应迁移到 START。"""
         await lifecycle.init_game()
-        assert lifecycle.status == GameStatus.START
+        assert await lifecycle.get_status() == GameStatus.START
 
     @pytest.mark.asyncio
     async def test_init_game_publishes_event(self, lifecycle, event_bus):
@@ -124,7 +131,7 @@ class TestStartGame:
         """正常流程: init_game 后 start_game，状态应为 RUNNING。"""
         await lifecycle.init_game()
         await lifecycle.start_game()
-        assert lifecycle.status == GameStatus.RUNNING
+        assert await lifecycle.get_status() == GameStatus.RUNNING
 
     @pytest.mark.asyncio
     async def test_start_game_activates_state_machine(self, lifecycle):
@@ -136,8 +143,8 @@ class TestStartGame:
         await lifecycle.init_game()
         await lifecycle.start_game()
 
-        assert lifecycle.state_machine.current_phase == GamePhase.NIGHT_START
-        assert lifecycle.state_machine.round == 1
+        assert await lifecycle.state_machine.get_current_phase() == GamePhase.NIGHT_START
+        assert await lifecycle.state_machine.get_round() == 1
 
     @pytest.mark.asyncio
     async def test_start_game_without_init_raises(self, lifecycle):
@@ -173,7 +180,7 @@ class TestAdvancePhase:
 
         # 从 NIGHT_START 推进到 NIGHT_WOLF_ACT
         await lifecycle.advance_phase(GamePhase.NIGHT_WOLF_ACT)
-        assert lifecycle.state_machine.current_phase == GamePhase.NIGHT_WOLF_ACT
+        assert await lifecycle.state_machine.get_current_phase() == GamePhase.NIGHT_WOLF_ACT
 
     @pytest.mark.asyncio
     async def test_advance_phase_when_init_raises(self, lifecycle):
@@ -181,7 +188,7 @@ class TestAdvancePhase:
         with pytest.raises(GameNotRunnableError) as exc_info:
             await lifecycle.advance_phase(GamePhase.NIGHT_START)
         assert exc_info.value.current_status == GameStatus.INIT
-        assert exc_info.value.game_id == "test_lifecycle_1"
+        assert exc_info.value.game_id == lifecycle.game_id
 
     @pytest.mark.asyncio
     async def test_advance_phase_when_finished_raises(self, lifecycle):
@@ -238,7 +245,7 @@ class TestEndGame:
         await lifecycle.start_game()
         await lifecycle.end_game("VILLAGER")
 
-        assert lifecycle.status == GameStatus.FINISHED
+        assert await lifecycle.get_status() == GameStatus.FINISHED
 
     @pytest.mark.asyncio
     async def test_end_game_sets_phase_to_game_over(self, lifecycle):
@@ -247,7 +254,7 @@ class TestEndGame:
         await lifecycle.start_game()
         await lifecycle.end_game("WEREWOLF")
 
-        assert lifecycle.state_machine.current_phase == GamePhase.GAME_OVER
+        assert await lifecycle.state_machine.get_current_phase() == GamePhase.GAME_OVER
 
     @pytest.mark.asyncio
     async def test_end_game_publishes_game_over_event(self, lifecycle, event_bus):
@@ -292,7 +299,7 @@ class TestAbortGame:
         """从 START 状态中止。"""
         await lifecycle.init_game()
         await lifecycle.abort_game("admin_cancel")
-        assert lifecycle.status == GameStatus.ABORTED
+        assert await lifecycle.get_status() == GameStatus.ABORTED
 
     @pytest.mark.asyncio
     async def test_abort_from_running(self, lifecycle):
@@ -300,7 +307,7 @@ class TestAbortGame:
         await lifecycle.init_game()
         await lifecycle.start_game()
         await lifecycle.abort_game("server_shutdown")
-        assert lifecycle.status == GameStatus.ABORTED
+        assert await lifecycle.get_status() == GameStatus.ABORTED
 
     @pytest.mark.asyncio
     async def test_abort_from_settling(self, lifecycle):
@@ -315,7 +322,7 @@ class TestAbortGame:
         # 手动推进到 SETTLING
         await lifecycle._set_status(GameStatus.SETTLING)
         await lifecycle.abort_game("settling_timeout")
-        assert lifecycle.status == GameStatus.ABORTED
+        assert await lifecycle.get_status() == GameStatus.ABORTED
 
     @pytest.mark.asyncio
     async def test_abort_from_init_raises(self, lifecycle):
@@ -344,7 +351,7 @@ class TestAbortGame:
         await lifecycle.abort_game("player_disconnected")
 
         # 验证状态已变为 ABORTED
-        assert lifecycle.status == GameStatus.ABORTED
+        assert await lifecycle.get_status() == GameStatus.ABORTED
 
         # 查找 ABORTED 相关的 SYSTEM_ANNOUNCEMENT 事件
         abort_events = [
@@ -370,12 +377,12 @@ class TestLifecycleFullFlow:
 
         # 1. 初始化
         await lifecycle.init_game()
-        assert lifecycle.status == GameStatus.START
+        assert await lifecycle.get_status() == GameStatus.START
 
         # 2. 开局
         await lifecycle.start_game()
-        assert lifecycle.status == GameStatus.RUNNING
-        assert lifecycle.state_machine.round == 1
+        assert await lifecycle.get_status() == GameStatus.RUNNING
+        assert await lifecycle.state_machine.get_round() == 1
 
         # 3. 夜晚流程
         await lifecycle.advance_phase(GamePhase.NIGHT_WOLF_ACT)
@@ -383,7 +390,7 @@ class TestLifecycleFullFlow:
         await lifecycle.advance_phase(GamePhase.NIGHT_SEER_ACT)
         await lifecycle.advance_phase(GamePhase.NIGHT_RESOLVE)
         await lifecycle.advance_phase(GamePhase.DAY_START)
-        assert lifecycle.state_machine.current_phase == GamePhase.DAY_START
+        assert await lifecycle.state_machine.get_current_phase() == GamePhase.DAY_START
 
         # 4. 白天流程
         await lifecycle.advance_phase(GamePhase.DAY_DISCUSSION)
@@ -393,7 +400,7 @@ class TestLifecycleFullFlow:
 
         # 5. 结束
         await lifecycle.end_game("VILLAGER")
-        assert lifecycle.status == GameStatus.FINISHED
+        assert await lifecycle.get_status() == GameStatus.FINISHED
 
         # 6. 验证事件已发布
         assert len(captured) > 0, "应该有事件被发布"
@@ -413,11 +420,11 @@ class TestLifecycleFullFlow:
         await lifecycle.init_game()
         await lifecycle.start_game()
 
-        assert lifecycle.status == GameStatus.RUNNING
-        assert lifecycle.state_machine.current_phase == GamePhase.NIGHT_START
-        assert lifecycle.state_machine.round >= 1
+        assert await lifecycle.get_status() == GameStatus.RUNNING
+        assert await lifecycle.state_machine.get_current_phase() == GamePhase.NIGHT_START
+        assert await lifecycle.state_machine.get_round() >= 1
 
         await lifecycle.end_game("WEREWOLF")
 
-        assert lifecycle.status == GameStatus.FINISHED
-        assert lifecycle.state_machine.current_phase == GamePhase.GAME_OVER
+        assert await lifecycle.get_status() == GameStatus.FINISHED
+        assert await lifecycle.state_machine.get_current_phase() == GamePhase.GAME_OVER

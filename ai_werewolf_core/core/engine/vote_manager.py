@@ -32,7 +32,6 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections import Counter
-from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 import redis.asyncio as aioredis
@@ -48,6 +47,7 @@ from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
 from ai_werewolf_core.utils.redis_client import RedisClientManager
 from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
 from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
+from ai_werewolf_core.utils.time_utils import now_tz
 
 logger = get_logger(__name__)
 
@@ -678,7 +678,7 @@ class VoteManager:
             event_type=EventType.PLAYER_DEATH,
             visibility=Visibility.PUBLIC,
             target_agents=[target_id],
-            timestamp=datetime.now(timezone.utc),
+            timestamp=now_tz(),
             payload={
                 "player_id": target_id,
                 "death_reason": "VOTED_OUT",
@@ -716,7 +716,7 @@ class VoteManager:
             event_type=EventType.VOTE_EVENT,
             visibility=Visibility.PUBLIC,
             target_agents=[],
-            timestamp=datetime.now(timezone.utc),
+            timestamp=now_tz(),
             payload={
                 "announcement_type": "vote_result",
                 "is_tie": is_tie,

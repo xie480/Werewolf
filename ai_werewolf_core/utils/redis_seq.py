@@ -319,7 +319,7 @@ class RedisSeqGenerator:
 # ============================================================================
 
 _redis_seq_instance: Optional[RedisSeqGenerator] = None
-_instance_lock: asyncio.Lock = asyncio.Lock()
+_instance_lock: Optional[asyncio.Lock] = None
 
 
 async def get_redis_seq() -> RedisSeqGenerator:
@@ -332,8 +332,12 @@ async def get_redis_seq() -> RedisSeqGenerator:
         全局唯一的 RedisSeqGenerator 实例
     """
     global _redis_seq_instance
+    global _instance_lock
 
     if _redis_seq_instance is None:
+        if _instance_lock is None:
+            _instance_lock = asyncio.Lock()
+            
         async with _instance_lock:
             # 双重检查锁定
             if _redis_seq_instance is None:
@@ -345,6 +349,11 @@ async def get_redis_seq() -> RedisSeqGenerator:
 async def reset_redis_seq() -> None:
     """重置 Redis 时序发号器单例 (仅用于测试)。"""
     global _redis_seq_instance
+    global _instance_lock
+    
+    if _instance_lock is None:
+        _instance_lock = asyncio.Lock()
+        
     async with _instance_lock:
         if _redis_seq_instance is not None:
             await _redis_seq_instance.close()

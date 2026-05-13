@@ -332,7 +332,8 @@ class EventBus:
         Returns:
             反序列化后的 Event 对象列表。
         """
-        from datetime import datetime, timezone
+        from datetime import datetime
+        from ai_werewolf_core.utils.time_utils import now_tz
 
         events: list[Event] = []
         for msg_id, fields in raw_messages:
@@ -345,7 +346,7 @@ class EventBus:
                     visibility=Visibility(fields.get("visibility", "")),
                     target_agents=json.loads(fields.get("target_agents", "[]")),
                     timestamp=datetime.fromisoformat(
-                        fields.get("timestamp", datetime.now(timezone.utc).isoformat())
+                        fields.get("timestamp", now_tz().isoformat())
                     ),
                     payload=json.loads(fields.get("payload", "{}")),
                 )

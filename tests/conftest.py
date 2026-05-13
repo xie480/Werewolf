@@ -5,7 +5,15 @@
 确保测试中的日志（包括 EventBus 的 `_default_log_subscriber`）能正常输出。
 """
 
+import pytest
+import pytest_asyncio
 from ai_werewolf_core.utils.logger import setup_logger
+from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
 
 # 模块加载时初始化 logger（pytest 在 collection 阶段加载 conftest.py，早于所有测试）
 setup_logger()
+
+@pytest_asyncio.fixture(autouse=True, scope="session")
+async def load_lua_scripts():
+    """在所有测试开始前加载 Lua 脚本。"""
+    await LuaScriptManager.load_all_scripts()

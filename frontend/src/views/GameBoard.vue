@@ -12,7 +12,7 @@
  
 import { onMounted, onBeforeUnmount, computed } from 'vue'
 import { useGameStore } from '../store/game'
-import { EventType } from '../types/enums'
+import { GameStatus, EventType } from '../types/enums'
 import BackgroundLayer from '../components/BackgroundLayer.vue'
 import ConnectionIndicator from '../components/ConnectionIndicator.vue'
 import PlayerSeat from '../components/PlayerSeat.vue'
@@ -76,7 +76,7 @@ const latestSpeech = computed(() => {
   return null
 })
 
-/** 当前阶段中文名 */
+/** 当前阶段中文名（法官区使用） */
 const phaseLabel = computed(() => {
   const map: Record<string, string> = {
     INIT: '初始化',
@@ -97,6 +97,19 @@ const phaseLabel = computed(() => {
   }
   return map[store.phase ?? ''] ?? store.phase ?? '未知'
 })
+
+/** 全局生命周期状态中文名（顶栏使用） */
+const statusLabel = computed(() => {
+  const map: Record<string, string> = {
+    INIT: '初始化',
+    START: '等待开始',
+    RUNNING: '进行中',
+    SETTLING: '结算中',
+    FINISHED: '已结束',
+    ABORTED: '已中止',
+  }
+  return map[store.status ?? ''] ?? store.status ?? '未知'
+})
 </script>
 
 <template>
@@ -108,7 +121,7 @@ const phaseLabel = computed(() => {
     <div class="top-bar">
       <button class="back-btn" @click="emit('leave')">← 返回大厅</button>
       <div class="game-info">
-        <span class="phase-badge">{{ phaseLabel }}</span>
+        <span class="status-badge">{{ statusLabel }}</span>
         <span class="round-badge">第 {{ store.round }} 轮</span>
       </div>
       <span class="game-id-display">{{ props.gameId }}</span>
@@ -119,6 +132,7 @@ const phaseLabel = computed(() => {
       <AnnouncementBanner />
       <div class="judge-phase-indicator">
         <span class="ring-phase">{{ phaseLabel }}</span>
+        <span v-if="store.phaseCountdown > 0" class="countdown-badge">{{ store.phaseCountdown }}s</span>
       </div>
     </div>
 

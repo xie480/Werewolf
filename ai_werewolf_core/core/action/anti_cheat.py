@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 
 import structlog
@@ -26,6 +26,7 @@ import structlog
 from ai_werewolf_core.core.action.validator import _safe_enum_value
 from ai_werewolf_core.schemas.enums import ActionType, Faction, GamePhase
 from ai_werewolf_core.schemas.models import AgentAction
+from ai_werewolf_core.utils.time_utils import now_tz
 
 try:
     from ai_werewolf_core.core.engine.roles.base import BaseRole
@@ -128,7 +129,7 @@ class ViolationRecord:
     violation_type: str
     penalty: PenaltyType
     action: AgentAction | None = None
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=now_tz)
 
 
 # ============================================================================

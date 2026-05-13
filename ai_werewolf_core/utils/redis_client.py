@@ -90,7 +90,7 @@ class RedisClientManager:
     _pool: Optional[aioredis.ConnectionPool] = None
     _client: Optional[aioredis.Redis] = None
     _initialized: bool = False
-    _lock: asyncio.Lock = asyncio.Lock()
+    _lock: Optional[asyncio.Lock] = None
 
     # ------------------------------------------------------------------
     # 公开类方法
@@ -111,6 +111,9 @@ class RedisClientManager:
         """
         if cls._initialized and cls._client is not None:
             return cls._client
+
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
 
         async with cls._lock:
             # 双重检查：锁内再次确认未被其他协程抢先初始化
@@ -182,10 +185,13 @@ class RedisClientManager:
 
         幂等操作：重复调用不会出错。
         """
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+            
         async with cls._lock:
             if cls._client is not None:
                 try:
-                    await cls._client.close()
+                    await cls._client.aclose()
                     logger.info("Redis 客户端已关闭")
                 except Exception as e:
                     logger.warning("关闭 Redis 客户端时出现异常", error=str(e))

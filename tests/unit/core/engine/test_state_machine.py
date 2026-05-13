@@ -40,26 +40,30 @@ def event_bus():
     bus.clear()
 
 
+import uuid
+
 @pytest.fixture
 def state_machine(event_bus):
     """提供 PhaseStateMachine 实例。"""
-    return PhaseStateMachine(game_id="test_game_1", event_bus=event_bus)
+    return PhaseStateMachine(game_id=f"test_game_{uuid.uuid4().hex}", event_bus=event_bus)
 
 
 class TestInitialState:
     """初始状态相关测试。"""
 
-    def test_initial_phase_is_none(self, state_machine):
+    @pytest.mark.asyncio
+    async def test_initial_phase_is_none(self, state_machine):
         """新创建的 PhaseStateMachine 当前阶段应为 None。"""
-        assert state_machine.current_phase is None
+        assert await state_machine.get_current_phase() is None
 
-    def test_initial_round_is_zero(self, state_machine):
+    @pytest.mark.asyncio
+    async def test_initial_round_is_zero(self, state_machine):
         """新创建的 PhaseStateMachine 轮次应为 0。"""
-        assert state_machine.round == 0
+        assert await state_machine.get_round() == 0
 
     def test_game_id_is_set(self, state_machine):
         """game_id 应正确保存。"""
-        assert state_machine.game_id == "test_game_1"
+        assert state_machine.game_id.startswith("test_game_")
 
     def test_event_bus_is_set(self, state_machine, event_bus):
         """event_bus 应正确保存。"""
@@ -73,9 +77,9 @@ class TestValidTransitions:
     async def test_none_to_init(self, state_machine):
         """从 None 迁移到 INIT 是合法的。"""
         await state_machine.transition_to(GamePhase.INIT)
-        assert state_machine.current_phase == GamePhase.INIT
+        assert await state_machine.get_current_phase() == GamePhase.INIT
         # 此时轮次不变（NIGHT_START 才递增）
-        assert state_machine.round == 0
+        assert await state_machine.get_round() == 0
 
     @pytest.mark.asyncio
     async def test_full_night_cycle(self, state_machine):
@@ -92,7 +96,7 @@ class TestValidTransitions:
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
         await state_machine.transition_to(GamePhase.DAY_START)
 
-        assert state_machine.current_phase == GamePhase.DAY_START
+        assert await state_machine.get_current_phase() == GamePhase.DAY_START
 
     @pytest.mark.asyncio
     async def test_full_day_cycle(self, state_machine):
@@ -110,7 +114,7 @@ class TestValidTransitions:
         await state_machine.transition_to(GamePhase.VOTE_RESOLVE)
         await state_machine.transition_to(GamePhase.GAME_OVER)
 
-        assert state_machine.current_phase == GamePhase.GAME_OVER
+        assert await state_machine.get_current_phase() == GamePhase.GAME_OVER
 
     @pytest.mark.asyncio
     async def test_vote_pk_branch(self, state_machine):
@@ -129,7 +133,7 @@ class TestValidTransitions:
         await state_machine.transition_to(GamePhase.VOTE_RESOLVE)
         await state_machine.transition_to(GamePhase.GAME_OVER)
 
-        assert state_machine.current_phase == GamePhase.GAME_OVER
+        assert await state_machine.get_current_phase() == GamePhase.GAME_OVER
 
     @pytest.mark.asyncio
     async def test_hunter_shoot_branch(self, state_machine):
@@ -147,7 +151,7 @@ class TestValidTransitions:
         await state_machine.transition_to(GamePhase.HUNTER_SHOOT)
         await state_machine.transition_to(GamePhase.GAME_OVER)
 
-        assert state_machine.current_phase == GamePhase.GAME_OVER
+        assert await state_machine.get_current_phase() == GamePhase.GAME_OVER
 
     @pytest.mark.asyncio
     async def test_last_words_from_day_vote(self, state_machine):
@@ -165,7 +169,7 @@ class TestValidTransitions:
         await state_machine.transition_to(GamePhase.LAST_WORDS)
         await state_machine.transition_to(GamePhase.NIGHT_START)
 
-        assert state_machine.current_phase == GamePhase.NIGHT_START
+        assert await state_machine.get_current_phase() == GamePhase.NIGHT_START
 
     @pytest.mark.asyncio
     async def test_game_over_to_night_starts_new_round(self, state_machine):
@@ -176,7 +180,7 @@ class TestValidTransitions:
         """
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        assert state_machine.round == 1
+        assert await state_machine.get_round() == 1
 
         # 快速推进到 GAME_OVER
         await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
@@ -192,7 +196,7 @@ class TestValidTransitions:
         # 新一轮
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        assert state_machine.round == 2
+        assert await state_machine.get_round() == 2
 
     @pytest.mark.asyncio
     async def test_game_over_to_none_ends_game(self, state_machine):
@@ -219,32 +223,32 @@ class TestValidTransitions:
         **Why**: 轮次以"天黑-天亮"循环为单位，内部子阶段不改变轮次。
         """
         await state_machine.transition_to(GamePhase.INIT)
-        assert state_machine.round == 0
+        assert await state_machine.get_round() == 0
 
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        assert state_machine.round == 1
+        assert await state_machine.get_round() == 1
 
         # 后续子阶段不应递增轮次
         await state_machine.transition_to(GamePhase.NIGHT_WOLF_ACT)
-        assert state_machine.round == 1
+        assert await state_machine.get_round() == 1
 
         await state_machine.transition_to(GamePhase.NIGHT_WITCH_ACT)
-        assert state_machine.round == 1
+        assert await state_machine.get_round() == 1
 
         await state_machine.transition_to(GamePhase.NIGHT_SEER_ACT)
-        assert state_machine.round == 1
+        assert await state_machine.get_round() == 1
 
         await state_machine.transition_to(GamePhase.NIGHT_RESOLVE)
-        assert state_machine.round == 1
+        assert await state_machine.get_round() == 1
 
         await state_machine.transition_to(GamePhase.DAY_START)
-        assert state_machine.round == 1
+        assert await state_machine.get_round() == 1
 
         await state_machine.transition_to(GamePhase.DAY_DISCUSSION)
-        assert state_machine.round == 1
+        assert await state_machine.get_round() == 1
 
         await state_machine.transition_to(GamePhase.DAY_VOTE)
-        assert state_machine.round == 1
+        assert await state_machine.get_round() == 1
 
 
 class TestInvalidTransitions:
@@ -311,14 +315,14 @@ class TestInvalidTransitions:
         """
         await state_machine.transition_to(GamePhase.INIT)
         await state_machine.transition_to(GamePhase.NIGHT_START)
-        phase_before = state_machine.current_phase
+        phase_before = await state_machine.get_current_phase()
 
         try:
             await state_machine.transition_to(GamePhase.DAY_VOTE)
         except InvalidTransitionError:
             pass
 
-        assert state_machine.current_phase == phase_before
+        assert await state_machine.get_current_phase() == phase_before
 
 
 class TestEventPublishing:
@@ -327,7 +331,9 @@ class TestEventPublishing:
     @pytest.mark.asyncio
     async def test_transition_publishes_event(self, event_bus):
         """阶段迁移应发布 PHASE_TRANSITION_EVENT 事件。"""
-        sm = PhaseStateMachine(game_id="test_pub", event_bus=event_bus)
+        import uuid
+        game_id = f"test_pub_{uuid.uuid4().hex}"
+        sm = PhaseStateMachine(game_id=game_id, event_bus=event_bus)
 
         # 使用 mock 捕获 publish 调用
         event_bus.publish = AsyncMock(wraps=event_bus.publish)
@@ -338,7 +344,7 @@ class TestEventPublishing:
         call_args = event_bus.publish.call_args[0]
         event = call_args[0]
         assert event.event_type == EventType.PHASE_TRANSITION_EVENT
-        assert event.game_id == "test_pub"
+        assert event.game_id == game_id
         assert event.visibility == "PUBLIC"
         assert event.payload["old_phase"] is None
         assert event.payload["new_phase"] == GamePhase.INIT.value
@@ -346,7 +352,9 @@ class TestEventPublishing:
     @pytest.mark.asyncio
     async def test_transition_event_contains_context(self, event_bus):
         """发布的事件 payload 应包含调用方传入的 context 数据。"""
-        sm = PhaseStateMachine(game_id="test_ctx", event_bus=event_bus)
+        import uuid
+        game_id = f"test_ctx_{uuid.uuid4().hex}"
+        sm = PhaseStateMachine(game_id=game_id, event_bus=event_bus)
 
         captured_events = []
         event_bus.publish = AsyncMock(
@@ -366,7 +374,9 @@ class TestEventPublishing:
     @pytest.mark.asyncio
     async def test_transition_event_contains_round(self, event_bus):
         """事件 payload 应包含当前轮次信息。"""
-        sm = PhaseStateMachine(game_id="test_rnd", event_bus=event_bus)
+        import uuid
+        game_id = f"test_rnd_{uuid.uuid4().hex}"
+        sm = PhaseStateMachine(game_id=game_id, event_bus=event_bus)
 
         captured_events = []
         event_bus.publish = AsyncMock(

@@ -116,10 +116,16 @@ def _build_processors(env: str) -> list[Processor]:
     生产环境 (prod) 使用 JSONRenderer + 标准 logging 输出；
     开发环境 (dev) 使用 ConsoleRenderer + 彩色输出。
     """
+    from ai_werewolf_core.utils.time_utils import now_tz
+
+    def _add_timestamp(_, __, event_dict: dict) -> dict:
+        event_dict["timestamp"] = now_tz().isoformat()
+        return event_dict
+
     shared_processors: list[Processor] = [
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
-        structlog.processors.TimeStamper(fmt="iso"),
+        _add_timestamp,
         _inject_context,
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.StackInfoRenderer(),
@@ -156,12 +162,18 @@ def _setup_stdlib_logging(env: str) -> None:
     else:
         renderer = structlog.dev.ConsoleRenderer(colors=True)
 
+    from ai_werewolf_core.utils.time_utils import now_tz
+
+    def _add_timestamp(_, __, event_dict: dict) -> dict:
+        event_dict["timestamp"] = now_tz().isoformat()
+        return event_dict
+
     formatter = structlog.stdlib.ProcessorFormatter(
         processor=renderer,
         foreign_pre_chain=[
             structlog.stdlib.add_log_level,
             structlog.stdlib.add_logger_name,
-            structlog.processors.TimeStamper(fmt="iso"),
+            _add_timestamp,
             _inject_context,
         ],
     )
