@@ -83,70 +83,54 @@ cd frontend && npx vue-tsc -b                 # 前端 TypeScript 类型检查
 
 ## 仓库结构
 
-```
-ai_werewolf_core/          # 后端核心
-├── config.py              # 全局配置 (pydantic-settings)，所有 env 由此加载
-├── main.py                # FastAPI 启动入口 (仅 ingress)
-├── worker.py              # Celery Worker 入口
-├── schemas/
-│   ├── enums.py           # 所有枚举: GamePhase, Role, ActionType, EventType, Visibility, Emotion, Faction
-│   └── models.py          # Pydantic 数据模型: Player, AgentAction, SpeechContent, VoteContent, Event, GameState
-├── core/
-│   ├── engine/            # 游戏引擎 = 铁面裁判
-│   │   ├── state_machine.py     # PhaseStateMachine — Redis Hash 共享状态机
-│   │   ├── lifecycle.py         # 对局生命周期管理
-│   │   ├── vote_manager.py      # 投票管理
-│   │   ├── resolver.py          # 行动结算
-│   │   ├── evaluator.py         # 胜负判定
-│   │   ├── special_action_resolver.py  # 特殊技能结算
-│   │   ├── exceptions.py        # 引擎异常
-│   │   └── roles/               # 角色能力定义 (base, villager, werewolf, seer, witch, hunter)
-│   ├── event/
-│   │   └── bus.py          # EventBus — Redis Stream 热数据 + PostgreSQL 冷数据双写事件溯源
-│   └── action/             # 动作校验、防作弊
-├── api/
-│   ├── routes/             # RESTful API 路由
-│   └── ws/                 # WebSocket 连接管理
-├── agents/                 # AI 玩家大脑
-│   ├── adapter/            # LLM 接口适配器
-│   ├── graph/              # LangGraph 工作流
-│   └── memory/             # 记忆管理 (PUBLIC/PRIVATE/FACTION 分级)
-├── db/
-│   ├── base.py             # SQLAlchemy Base
-│   ├── models.py           # ORM 模型 (含 EventRecord 事件溯源表)
-│   └── session.py          # 异步 session 工厂
-├── utils/
-│   ├── snowflake.py        # 雪花 ID 生成器 (实体持久化用)
-│   ├── redis_seq.py        # Redis INCR 原子序号 (事件 seq_num 用)
-│   ├── redis_client.py     # Redis 连接池管理
-│   ├── redis_lua_loader.py # Lua 脚本加载器
-│   └── logger.py           # structlog 结构化日志
-├── redis_lua/              # Redis Lua 原子脚本
-│   ├── phase_transition.lua  # 阶段迁移 (校验+更新 一步完成)
-│   ├── vote_submit.lua       # 投票提交
-│   ├── status_transition.lua # 状态迁移
-│   └── hset_with_ttl.lua     # 带 TTL 的 HSET
-├── constant/
-│   └── redis_keys.py       # Redis Key 命名规范 (集中管理，防散落)
-└── alembic/                # 数据库迁移
-
-frontend/                   # Vue 3 + Vite + TypeScript 前端
-├── src/
-│   ├── api/                # HTTP 接口封装
-│   ├── websocket/          # WebSocket 客户端
-│   ├── store/              # Pinia 状态管理
-│   ├── views/              # 页面组件
-│   └── components/         # 通用 UI 组件
-
-docs/
-├── agent.md                # 完整架构规范 (含目录结构、开发阶段、编码要求)
-├── system/                 # 13 个子系统设计文档
-└── plan/                   # 开发计划与设计决策记录
-
-tests/
-├── conftest.py             # pytest 配置 (初始化 structlog)
-├── unit/                   # 单元测试
-└── test_*.py               # 集成测试
+```text
+.
+├─ .claudeignore               # Claude ignore configuration
+├─ .env.example                # Example environment variables
+├─ .gitignore                  # Git ignore patterns
+├─ CLAUDE.md                   # Guidance for Claude Code
+├─ docker-compose.yml          # Docker Compose configuration
+├─ pytest.ini                  # Pytest configuration
+├─ README.md                   # Project overview and instructions
+├─ run.bat / start scripts    # Windows scripts to launch services
+├─ ai_werewolf_core/          # Backend core
+│   ├─ __init__.py            # Package initialization
+│   ├─ alembic/               # Database migration scripts (Alembic)
+│   │   └─ ...                # Alembic version files
+│   ├─ agents/                # Agent definitions
+│   │   ├─ graph/             # Graph definition for agent reasoning
+│   │   │   └─ ...            # Graph modules
+│   │   └─ memory/            # Memory modules (private, public, pruner)
+│   │       └─ ...            # Memory implementations
+│   ├─ api/                   # REST API definitions
+│   │   ├─ routes/            # API route handlers (actions, events, games, players)
+│   │   └─ ws/                # WebSocket endpoints
+│   ├─ constant/              # Constant definitions (e.g., Redis keys)
+│   ├─ core/                  # Core engine components
+│   │   ├─ action/            # Action validation and anti-cheat logic
+│   │   ├─ engine/            # Game engine, lifecycle, state machine, vote manager
+│   │   │   └─ roles/         # Role implementations (hunter, seer, villager, werewolf, witch)
+│   │   └─ event/             # EventBus implementation
+│   ├─ db/                    # Database models and session handling
+│   ├─ redis_lua/             # Lua scripts for atomic Redis operations
+│   ├─ schemas/               # Pydantic schemas (API, enums, models)
+│   ├─ tasks/                 # Celery task definitions
+│   └─ utils/                 # Utility modules (logging, Redis client, etc.)
+├─ docs/                       # Documentation
+│   ├─ db/                     # Database schema documentation
+│   ├─ plan/                   # Design and planning documents
+│   └─ system/                 # Subsystem specifications
+├─ frontend/                  # Frontend UI (Vue 3)
+│   ├─ public/                # Static assets (images, icons)
+│   └─ src/                   # Vue source code
+│       ├─ api/                # API client wrappers
+│       ├─ components/        # UI components
+│       ├─ store/              # State management (Pinia)
+│       ├─ types/              # TypeScript type definitions
+│       ├─ views/              # Page views
+│       └─ websocket/          # WebSocket client handling
+├─ resource/                  # Static assets: backgrounds, identity icons
+└─ tests/                     # Test suite: unit and integration tests
 ```
 
 ---
