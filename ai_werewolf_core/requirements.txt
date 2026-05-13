@@ -19,6 +19,7 @@ pydantic-settings
 langgraph
 langchain
 openai
+tiktoken
 
 # 工具与日志
 structlog

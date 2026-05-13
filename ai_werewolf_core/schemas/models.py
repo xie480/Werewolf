@@ -5,7 +5,7 @@
 """
 
 from datetime import datetime
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 from pydantic import BaseModel, Field, validator
 
 from .enums import (
@@ -16,6 +16,7 @@ from .enums import (
     GameStatus,
     EventType,
     Emotion,
+    Faction,
 )
 
 
@@ -71,6 +72,38 @@ class AgentAction(BaseModel):
 
     class Config:
         use_enum_values = True
+
+
+class PublicEventLog(BaseModel):
+    """单条公共事件日志"""
+    seq_num: int = Field(..., description="全局事件序号，保证严格时序")
+    phase: GamePhase = Field(..., description="事件发生的游戏阶段")
+    description: str = Field(..., description="自然语言描述，如'玩家3发言：我是预言家'")
+
+
+class PrivateEventLog(BaseModel):
+    """单条私有事件日志"""
+    seq_num: int = Field(..., description="全局事件序号，保证严格时序")
+    phase: GamePhase = Field(..., description="事件发生的游戏阶段")
+    description: str = Field(..., description="自然语言描述，如'昨晚你查验了3号，他是狼人'")
+
+
+class PrivateState(BaseModel):
+    """Agent 私有状态"""
+    role: Role = Field(..., description="真实底牌身份")
+    faction: Faction = Field(..., description="所属阵营")
+    teammates: List[str] = Field(default_factory=list, description="已知队友ID列表（如狼人队友）")
+    skill_status: Dict[str, Any] = Field(default_factory=dict, description="技能状态（如女巫解药是否可用）")
+    system_feedbacks: List[PrivateEventLog] = Field(default_factory=list, description="系统私密反馈（如昨晚验人结果）")
+
+
+class MemorySnapshot(BaseModel):
+    """传递给 LangGraph 的完整记忆快照"""
+    agent_id: str
+    game_id: str
+    public_timeline: List[PublicEventLog] = Field(..., description="裁剪后的公共时间线")
+    private_state: PrivateState = Field(..., description="当前私有状态")
+    historical_reasoning: List[str] = Field(default_factory=list, description="历史内心OS摘要")
 
 
 class SpeechContent(BaseModel):

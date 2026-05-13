@@ -27,6 +27,7 @@ class AgentState(TypedDict):
     game_id: str
     player_id: str
     current_phase: GamePhase
+    current_round: int
     
     # --- 记忆与感知 (由 MemoryNode 填充) ---
     memory_snapshot: Optional[Any]  # MemorySnapshot 实例
@@ -87,40 +88,56 @@ async def reasoning_node(state: AgentState) -> AgentState:
 **职责**：对 `proposed_action` 进行严格的 Schema 校验和基础业务规则校验（如目标玩家是否存活）。
 ```python
 async def validation_node(state: AgentState) -> AgentState:
-    if not state.get("proposed_action"):
-        return {"is_valid": False}
+    proposed_action = state.get("proposed_action")
+    if not proposed_action:
+        return {"is_valid": False, "retry_count": state.get("retry_count", 0) + 1}
         
     errors = []
+    action_obj = None
+    
+    # 1. Schema 校验 (Pydantic 强类型校验)
     try:
-        # 1. Schema 校验
-        action_obj = AgentAction(**state["proposed_action"])
-        
-        # 2. 基础业务校验 (调用 Engine 的 Validator)
-        await action_validator.validate_basic(action_obj, state["game_id"])
-        
-        return {"is_valid": True, "validation_errors": []}
+        action_obj = AgentAction(**proposed_action)
     except Exception as e:
-        errors.append(str(e))
+        errors.append(f"Schema validation error: {str(e)}")
+        
+    # 2. 基础业务校验 (调用 Engine 的只读基础校验接口)
+    if not errors and action_obj:
+        try:
+            result = await ActionValidator.validate_basic(action_obj, state["game_id"])
+            if not result.is_valid:
+                errors.append(f"Business validation error: {result.reason}")
+        except Exception as e:
+            errors.append(f"Business validation error: {str(e)}")
+            
+    if errors:
         return {
             "is_valid": False,
             "validation_errors": state.get("validation_errors", []) + errors,
             "retry_count": state.get("retry_count", 0) + 1
         }
+        
+    return {"is_valid": True, "validation_errors": [], "retry_count": state.get("retry_count", 0)}
 ```
 
 ### 3.4 降级节点 (`fallback_node`)
 **职责**：当重试次数耗尽时，生成安全的默认动作。
 ```python
 async def fallback_node(state: AgentState) -> AgentState:
-    logger.error("agent_fallback_triggered", player_id=state["player_id"], errors=state["validation_errors"])
+    logger.error("agent_fallback_triggered", player_id=state["player_id"], errors=state.get("validation_errors", []))
     
-    # 根据当前阶段生成默认动作
-    default_action = generate_safe_default_action(state["current_phase"], state["player_id"])
+    # 根据当前阶段和轮次生成完全符合 AgentAction Schema 的安全默认动作
+    default_action = generate_safe_default_action(
+        state["current_phase"],
+        state.get("current_round", 1),
+        state["player_id"]
+    )
     
     return {
         "proposed_action": default_action,
         "is_valid": True,
-        "internal_monologue": "系统强制接管：重试次数耗尽，执行默认动作。"
+        "internal_monologue": "系统强制接管：重试次数耗尽，执行默认动作。",
+        "validation_errors": []
     }
 ```
 
@@ -133,40 +150,46 @@ async def fallback_node(state: AgentState) -> AgentState:
 ```python
 from langgraph.graph import StateGraph, END
 
+# 节点名称常量
+NODE_MEMORY = "memory"
+NODE_REASONING = "reasoning"
+NODE_VALIDATION = "validation"
+NODE_FALLBACK = "fallback"
+
 def build_agent_graph():
     workflow = StateGraph(AgentState)
     
     # 添加节点
-    workflow.add_node("memory", memory_node)
-    workflow.add_node("reasoning", reasoning_node)
-    workflow.add_node("validation", validation_node)
-    workflow.add_node("fallback", fallback_node)
+    workflow.add_node(NODE_MEMORY, memory_node)
+    workflow.add_node(NODE_REASONING, reasoning_node)
+    workflow.add_node(NODE_VALIDATION, validation_node)
+    workflow.add_node(NODE_FALLBACK, fallback_node)
     
     # 定义主流程边
-    workflow.set_entry_point("memory")
-    workflow.add_edge("memory", "reasoning")
-    workflow.add_edge("reasoning", "validation")
+    workflow.set_entry_point(NODE_MEMORY)
+    workflow.add_edge(NODE_MEMORY, NODE_REASONING)
+    workflow.add_edge(NODE_REASONING, NODE_VALIDATION)
     
     # 定义条件路由逻辑
     def route_after_validation(state: AgentState) -> str:
         if state.get("is_valid"):
             return END  # 校验通过，结束工作流
         if state.get("retry_count", 0) >= state.get("max_retries", 3):
-            return "fallback"  # 重试耗尽，进入降级
-        return "reasoning"  # 继续重试
+            return NODE_FALLBACK  # 重试耗尽，进入降级
+        return NODE_REASONING  # 继续重试
         
     # 添加条件边
     workflow.add_conditional_edges(
-        "validation",
+        NODE_VALIDATION,
         route_after_validation,
         {
             END: END,
-            "fallback": "fallback",
-            "reasoning": "reasoning"
+            NODE_FALLBACK: NODE_FALLBACK,
+            NODE_REASONING: NODE_REASONING
         }
     )
     
-    workflow.add_edge("fallback", END)
+    workflow.add_edge(NODE_FALLBACK, END)
     
     return workflow.compile()
 ```
@@ -197,9 +220,23 @@ def build_agent_graph():
 
 ## 6. 与其他系统模块的交互与状态流转
 
-1. **与 Celery Worker 的交互**：
-   - LangGraph 工作流的实例化和 `invoke()` 调用发生在 Celery Task 内部。
-   - 工作流执行完毕到达 `END` 节点后，Celery Task 提取最终的 `proposed_action` 并返回。
-2. **与 Game Engine 的交互**：
-   - LangGraph 内部的 `validation_node` 会调用 Engine 的只读校验接口。
-   - 工作流结束后，最终动作由外部的 Celery Task 提交给 Engine 的 `Resolver` 进行状态变更。LangGraph 绝对不直接修改 Engine 的全局状态。
+### 6.1 与 Celery Worker 的交互 (`agent_tasks.py`)
+- **任务收口**：废弃了早期的 `agent.py` 占位文件，所有 Agent 相关的 Celery 任务统一收口至 `ai_werewolf_core/tasks/agent_tasks.py`。
+- **异步桥接**：Celery 任务本身是同步的，而 LangGraph 节点是异步的。在 `run_agent_decision` 任务中，通过 `asyncio.run(graph.ainvoke(initial_state))` 桥接执行异步工作流。
+- **动作提交**：工作流执行完毕后，由独立的 `submit_agent_action` Celery 任务负责将最终动作提交给 Game Engine。
+
+### 6.2 与 Game Engine 的交互及终极兜底策略
+- **只读基础校验**：LangGraph 内部的 `validation_node` 仅调用 `ActionValidator.validate_basic` 进行轻量级的结构和存活状态校验，**故意跳过冷却校验**，以允许 Agent 内部高频重试而不触发防刷机制。
+- **API 层复用**：`submit_agent_action` 任务内部复用了 API 层的 `submit_action_internal` 逻辑，确保动作提交经过完整的“铁面裁判”校验（包含阶段、权限、冷却等）。
+- **终极兜底机制 (Ultimate Fallback)**：
+  如果在 `submit_agent_action` 阶段动作被 Engine 严格拒绝（如并发导致状态变化），或者发生任何未捕获异常，任务会触发终极兜底逻辑：
+  1. 捕获异常或拒绝结果。
+  2. 再次调用 `generate_safe_default_action` 构造一个绝对安全的默认动作（如 `PASS` 或 `SPEAK`）。
+  3. 强制将该兜底动作提交给 Engine。
+  4. 确保 Agent 不会因为非法动作而“挂机”，防止游戏流程卡死。
+
+## 7. 测试与质量保证
+
+为确保 LangGraph 工作流的健壮性，系统包含完整的单元测试与集成测试覆盖：
+- **节点单元测试 (`test_nodes.py`)**：独立测试 `memory_node`、`reasoning_node`、`validation_node`（覆盖成功、业务校验失败、Schema 校验失败等分支）以及 `fallback_node` 的逻辑。
+- **图集成测试 (`test_graph.py`)**：测试 `route_after_validation` 的条件路由逻辑，以及 `run_agent_workflow` 的完整执行路径（包括正常通过路径和重试耗尽触发降级的路径）。

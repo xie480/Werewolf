@@ -16,10 +16,11 @@
 ### 2.1 记忆快照契约 (Memory Snapshot Schema)
 
 在每次 Agent 被唤醒时，Memory System 会为其生成一份专属的记忆快照，供 Prompt 组装使用。
+> **注意**: 所有数据模型已统一收拢至 `ai_werewolf_core/schemas/models.py` 中进行管理。
 
 ```python
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from ai_werewolf_core.schemas.enums import GamePhase, Role, Faction
 
 class PublicEventLog(BaseModel):
@@ -28,13 +29,19 @@ class PublicEventLog(BaseModel):
     phase: GamePhase = Field(..., description="事件发生的游戏阶段")
     description: str = Field(..., description="自然语言描述，如'玩家3发言：我是预言家'")
 
+class PrivateEventLog(BaseModel):
+    """单条私有事件日志"""
+    seq_num: int = Field(..., description="全局事件序号，保证严格时序")
+    phase: GamePhase = Field(..., description="事件发生的游戏阶段")
+    description: str = Field(..., description="自然语言描述，如'昨晚你查验了3号，他是狼人'")
+
 class PrivateState(BaseModel):
     """Agent 私有状态"""
     role: Role = Field(..., description="真实底牌身份")
     faction: Faction = Field(..., description="所属阵营")
     teammates: List[str] = Field(default_factory=list, description="已知队友ID列表（如狼人队友）")
     skill_status: Dict[str, Any] = Field(default_factory=dict, description="技能状态（如女巫解药是否可用）")
-    system_feedbacks: List[str] = Field(default_factory=list, description="系统私密反馈（如昨晚验人结果）")
+    system_feedbacks: List[PrivateEventLog] = Field(default_factory=list, description="系统私密反馈（如昨晚验人结果）")
 
 class MemorySnapshot(BaseModel):
     """传递给 LangGraph 的完整记忆快照"""
@@ -98,37 +105,30 @@ class PublicMemoryManager:
 
 ### 3.2 私有记忆管理器 (`private.py`)
 
-负责管理 Agent 的私密状态，数据存储于 Redis Hash (`werewolf:game:{game_id}:player:{player_id}:private`)。
+负责管理 Agent 的私密状态。为了解决高并发下的数据竞态问题并提升读写性能，Redis 存储结构被拆分为三部分（统一在 `RedisKeys` 中管理）：
+1. **基础状态 (Hash)**: `werewolf:memory:private:{game_id}:{player_id}`，存储 `PrivateState` 的基础字段。
+2. **系统反馈 (List)**: `werewolf:memory:private:{game_id}:{player_id}:feedbacks`，使用 `RPUSH` 原子追加 `PrivateEventLog`。
+3. **历史推理 (List)**: `werewolf:memory:private:{game_id}:{player_id}:reasoning`，使用 `RPUSH` 原子追加内心 OS。
 
 ```python
 class PrivateMemoryManager:
-    def __init__(self, redis_client):
-        self.redis = redis_client
-
-    async def get_private_state(self, game_id: str, player_id: str) -> PrivateState:
+    async def get_private_state(self, game_id: str, player_id: str, request_agent_id: str) -> PrivateState:
         """
         获取指定玩家的私有状态。
-        严格校验 player_id，防止越权读取。
+        严格校验 request_agent_id 与 player_id 是否一致，防止越权读取。
+        从 Hash 读取基础状态，从 List 读取系统反馈，并组装返回。
         """
-        key = f"werewolf:game:{game_id}:player:{player_id}:private"
-        raw_data = await self.redis.hgetall(key)
-        
-        if not raw_data:
-            raise MemoryNotFoundError(f"Private memory not found for {player_id}")
-            
-        return PrivateState.model_validate_json(raw_data[b'state'])
+        pass
 
-    async def append_system_feedback(self, game_id: str, player_id: str, feedback: str):
+    async def append_system_feedback(self, game_id: str, player_id: str, feedback: PrivateEventLog):
         """
         追加系统私密反馈（如法官告知预言家查验结果）。
-        这是防幻觉的核心机制。
+        这是防幻觉的核心机制。直接使用 RPUSH 追加到 List，天然保证原子性。
         """
-        key = f"werewolf:game:{game_id}:player:{player_id}:private"
-        # 使用 Lua 脚本保证原子追加
         pass
         
     async def save_reasoning(self, game_id: str, player_id: str, reasoning: str):
-        """保存 Agent 的内心 OS，用于后续回合的连贯性"""
+        """保存 Agent 的内心 OS，用于后续回合的连贯性。使用 RPUSH 追加到 List。"""
         pass
 ```
 
@@ -141,6 +141,7 @@ class PrivateMemoryManager:
 ### 4.1 滑动窗口与关键帧策略
 - **近期全量保留**：保留最近 2 个 Phase（如昨晚 + 今天白天）的所有详细发言和事件。
 - **远期摘要保留（模型压缩）**：对于 2 个 Phase 之前的事件，**不应直接丢弃具体发言内容**。相反，使用轻量级 LLM（如 GPT-3.5‑Turbo、Qwen‑1.5B 本地部署等）作为“记忆压缩器”，将冗长的历史发言提炼为高度浓缩的逻辑摘要（示例：“第1天白天：1号跳预言家查杀2号；3号跟票；4号划水”），并与关键帧（死亡播报、投票结果）合并存储，以保留博弈核心链路。
+  > **当前实现状态**: `MemoryPruner` 中已使用 `tiktoken` 实现 Token 计算。轻量级 LLM 压缩功能目前使用 `TODO` 占位，当前降级策略为**直接从后往前截断裁剪**，直到满足 Token 限制。
 - **动态 Token 计算与级联压缩**：在组装 `MemorySnapshot` 时，使用 `tiktoken` 估算 Token 数量。如果仍超过阈值（如 6000 tokens），则触发级联压缩逻辑，对更早期的摘要再次使用轻量模型进行二次浓缩，确保上下文窗口始终在安全范围内。
 
 ---
