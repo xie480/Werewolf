@@ -21,7 +21,7 @@ from redis.asyncio import Redis
 
 from ai_werewolf_core.constant.redis_keys import RedisKeys
 from ai_werewolf_core.core.engine.roles.base import BaseRole
-from ai_werewolf_core.schemas.enums import GamePhase, SurvivalRequirement
+from ai_werewolf_core.schemas.enums import GamePhase, SurvivalRequirement, ActionType
 from ai_werewolf_core.schemas.models import AgentAction
 from ai_werewolf_core.utils.redis_client import RedisClientManager
 
@@ -184,6 +184,54 @@ class ActionValidator:
         result = await self._validate_survival(action, role)
         if not result.is_valid:
             return result
+
+        return ValidationResult.passed()
+
+    # ------------------------------------------------------------------
+    # 基础校验 (供 Agent LangGraph 调用)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    async def validate_basic(
+        cls, action: AgentAction, game_id: str
+    ) -> ValidationResult:
+        """供 Agent LangGraph 调用的基础校验接口。
+
+        执行结构化校验，以及基础的业务规则校验（如目标玩家是否存在/存活）。
+        不执行冷却校验（避免 Agent 内部重试触发冷却）。
+
+        Args:
+            action: 待校验的 AgentAction。
+            game_id: 对局唯一标识。
+
+        Returns:
+            ValidationResult 实例。
+        """
+        # 1. 结构化校验
+        result = cls._validate_structure(action)
+        if not result.is_valid:
+            return result
+
+        # 2. 目标玩家校验 (如果需要目标，检查目标是否存活)
+        if action.target_id:
+            try:
+                seat_number = cls._extract_seat_number(action.target_id)
+                redis = await RedisClientManager.get_client()
+                bitmap_key = RedisKeys.alive_bitmap(game_id)
+                is_alive_raw = await redis.getbit(bitmap_key, seat_number - 1)
+                if not is_alive_raw:
+                    # 狼人刀人、预言家查验、女巫毒人通常要求目标存活
+                    if action.action_type in (
+                        ActionType.WOLF_KILL.value,
+                        ActionType.WITCH_POISON.value,
+                        ActionType.SEER_CHECK.value,
+                    ):
+                        return ValidationResult.rejected(
+                            reason=f"目标玩家 {action.target_id} 已死亡，无法作为 {action.action_type} 的目标",
+                            rejected_by="business",
+                        )
+            except Exception as e:
+                logger.warning("validate_basic_redis_error", error=str(e))
 
         return ValidationResult.passed()
 
