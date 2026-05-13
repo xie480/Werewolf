@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import redis.asyncio as aioredis
+from redis.exceptions import NoScriptError
 
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
@@ -243,7 +244,7 @@ class LuaScriptManager:
 
         try:
             return await client.evalsha(sha, len(keys), *keys, *args)
-        except aioredis.NoScriptError:
+        except NoScriptError:
             logger.warning(
                 "EVALSHA 失败（NOSCRIPT），回退到 EVAL 执行",
                 script_name=script_name,
@@ -255,7 +256,7 @@ class LuaScriptManager:
             cls._shas[script_name] = new_sha
             try:
                 return await client.evalsha(new_sha, len(keys), *keys, *args)
-            except aioredis.NoScriptError:
+            except NoScriptError:
                 # 如果 EVALSHA 再次失败，直接用 EVAL
                 return await client.eval(
                     script_body, len(keys), *keys, *args

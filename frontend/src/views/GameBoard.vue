@@ -1,18 +1,15 @@
 <script setup lang="ts">
 /**
- * 游戏主界面 —— 环形玩家座位布局 + 昼夜背景 + 法官播报 + 行动面板。
+ * 游戏主界面 —— 左右两侧玩家座位布局 + 顶部法官 + 底部控制面板。
  *
- * **Why**: 这是狼人杀游戏的核心渲染页面，按设计文档要求实现：
- * - 左盘右台（环形布局）：12 个座位围绕中央
- * - 昼夜背景平滑切换：BackgroundLayer 组件
- * - 法官播报横幅：AnnouncementBanner 组件
- * - AI 聊天气泡：SpeechBubble 组件
- * - 动态控制台：ActionPanel 组件
- * - God View 默认（纯 AI 对局所有身份牌翻开）
+ * **Why**: 根据 UI 需求，将原环形布局改为左右两列布局，法官信息放置在顶部
+ * - 左侧 5 人（座位 1~5 按顺序从上到下），右侧 4 人（座位 9~6 逆序从上到下）
+ * - 顶部法官区展示 AnnouncementBanner 与当前阶段
+ * - 底部控制区展示 ConnectionIndicator 与 ActionPanel
  *
  * 参考: [`docs/plan/前端界面设计方案.md`](../../../docs/plan/前端界面设计方案.md)
  */
-
+ 
 import { onMounted, onBeforeUnmount, computed } from 'vue'
 import { useGameStore } from '../store/game'
 import { EventType } from '../types/enums'
@@ -50,20 +47,21 @@ onBeforeUnmount(() => {
 // 计算属性
 // ============================================================================
 
-/** 环形布局参数 */
-const ringRadius = 240 // 环形半径 (px)
+/** 左侧玩家（U 形上半部分） */
+const leftPlayers = computed(() => {
+  const half = Math.ceil((store.playerCount || 9) / 2)
+  return store.players
+    .filter(p => p.seat_number <= half)
+    .sort((a, b) => a.seat_number - b.seat_number)
+})
 
-/** 玩家座位位置 */
-function seatPosition(seatNumber: number): { x: number; y: number } {
-  const totalSeats = store.playerCount || 9
-  const anglePerSeat = (2 * Math.PI) / totalSeats
-  // 从顶部开始（-90°），顺时针排列
-  const angle = (seatNumber - 1) * anglePerSeat - Math.PI / 2
-  return {
-    x: Math.cos(angle) * ringRadius,
-    y: Math.sin(angle) * ringRadius,
-  }
-}
+/** 右侧玩家（U 形下半部分，逆序） */
+const rightPlayers = computed(() => {
+  const half = Math.ceil((store.playerCount || 9) / 2)
+  return store.players
+    .filter(p => p.seat_number > half)
+    .sort((a, b) => b.seat_number - a.seat_number)
+})
 
 /** 最新发言事件的内容和发言人 */
 const latestSpeech = computed(() => {
@@ -103,11 +101,8 @@ const phaseLabel = computed(() => {
 
 <template>
   <div class="game-board">
-    <!-- 昼夜背景 -->
+    <!-- 背景层 -->
     <BackgroundLayer />
-
-    <!-- 法官播报横幅 -->
-    <AnnouncementBanner />
 
     <!-- 顶部状态栏 -->
     <div class="top-bar">
@@ -119,40 +114,43 @@ const phaseLabel = computed(() => {
       <span class="game-id-display">{{ props.gameId }}</span>
     </div>
 
-    <!-- 中央环形座位区 -->
-    <div class="ring-container">
-      <div class="ring-center">
+    <!-- 顶部法官区 -->
+    <div class="judge-area">
+      <AnnouncementBanner />
+      <div class="judge-phase-indicator">
         <span class="ring-phase">{{ phaseLabel }}</span>
       </div>
-      <div
-        v-for="player in store.players"
-        :key="player.player_id"
-        class="seat-wrapper"
-        :style="{
-          left: `calc(50% + ${seatPosition(player.seat_number).x}px)`,
-          top: `calc(50% + ${seatPosition(player.seat_number).y}px)`,
-        }"
-      >
-        <PlayerSeat
-          :player="player"
-          :is-speaker="player.player_id === store.currentSpeaker"
-        />
+    </div>
+
+    <!-- 主战场：左右两侧座位 + 中央发言区 -->
+    <div class="main-battlefield">
+      <!-- 左侧玩家 -->
+      <div class="side-column left-side">
+        <div v-for="player in leftPlayers" :key="player.player_id" class="seat-wrapper">
+          <PlayerSeat :player="player" :is-speaker="player.player_id === store.currentSpeaker" position="left" />
+        </div>
+      </div>
+
+      <!-- 中央发言区域 -->
+      <div class="center-area">
+        <div v-if="latestSpeech" class="speech-area">
+          <SpeechBubble :speaker-id="latestSpeech.speakerId" :content="latestSpeech.content" />
+        </div>
+      </div>
+
+      <!-- 右侧玩家 -->
+      <div class="side-column right-side">
+        <div v-for="player in rightPlayers" :key="player.player_id" class="seat-wrapper">
+          <PlayerSeat :player="player" :is-speaker="player.player_id === store.currentSpeaker" position="right" />
+        </div>
       </div>
     </div>
 
-    <!-- 发言气泡（最新发言） -->
-    <div v-if="latestSpeech" class="speech-area">
-      <SpeechBubble
-        :speaker-id="latestSpeech.speakerId"
-        :content="latestSpeech.content"
-      />
+    <!-- 底部控制区 -->
+    <div class="bottom-control-area">
+      <ConnectionIndicator />
+      <ActionPanel />
     </div>
-
-    <!-- WebSocket 连接指示灯 -->
-    <ConnectionIndicator />
-
-    <!-- 动态行动面板 -->
-    <ActionPanel />
   </div>
 </template>
 
@@ -163,11 +161,13 @@ const phaseLabel = computed(() => {
   height: 100vh;
   overflow: hidden;
   background: #111;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 顶部状态栏 */
 .top-bar {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   right: 0;
@@ -191,7 +191,6 @@ const phaseLabel = computed(() => {
   cursor: pointer;
   transition: background 0.2s;
 }
-
 .back-btn:hover {
   background: rgba(255, 255, 255, 0.15);
 }
@@ -200,7 +199,6 @@ const phaseLabel = computed(() => {
   display: flex;
   gap: 10px;
 }
-
 .phase-badge {
   background: rgba(255, 215, 0, 0.15);
   border: 1px solid rgba(255, 215, 0, 0.3);
@@ -209,7 +207,6 @@ const phaseLabel = computed(() => {
   font-size: 13px;
   color: #ffd700;
 }
-
 .round-badge {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -218,54 +215,92 @@ const phaseLabel = computed(() => {
   font-size: 13px;
   color: #aaa;
 }
-
 .game-id-display {
   font-family: monospace;
   font-size: 12px;
   color: #666;
 }
 
-/* 环形座位区 */
-.ring-container {
-  position: absolute;
-  inset: 80px 0 120px;
+/* 顶部法官区 */
+.judge-area {
+  margin-top: 60px; /* 与 top-bar 留出间距 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 10;
+}
+.judge-phase-indicator {
+  margin-top: 10px;
+  padding: 8px 32px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 2px solid rgba(255, 215, 0, 0.3);
+  border-radius: 24px;
+  box-shadow: 0 0 15px rgba(255, 215, 0, 0.1);
+  backdrop-filter: blur(4px);
+}
+.ring-phase {
+  font-size: 16px;
+  font-weight: bold;
+  color: #ffd700;
+  letter-spacing: 2px;
+}
+
+/* 主战场布局 */
+.main-battlefield {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  padding: 80px 40px 120px 40px; /* 顶部留出 TopBar 空间(80px)，底部留出 ActionPanel 空间(120px) */
+  overflow: hidden;
   z-index: 10;
 }
 
-.ring-center {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.4);
-  border: 2px solid rgba(255, 255, 255, 0.1);
+/* 左右玩家列 */
+.side-column {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 200px; /* 关键修改：加宽以容纳横向的卡牌和文字 */
+  height: 100%;
+  gap: 15px; 
+}
+
+
+/* 座位容器 */
+.seat-wrapper {
+  /* 核心魔法：根据屏幕高度动态计算最大高度，按最多 5 张卡来算 */
+  /* 100vh 减去顶部(80px)、底部(120px)和间距(约40px)，除以 5 */
+  height: min(160px, calc((100vh - 240px) / 5)); 
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
 }
 
-.ring-phase {
-  font-size: 14px;
-  color: #ffd700;
-  text-align: center;
-  line-height: 1.4;
-}
 
-.seat-wrapper {
-  position: absolute;
-  transform: translate(-50%, -50%);
+/* 中央发言区域 */
+.center-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 40px;
+  position: relative;
 }
-
-/* 发言气泡区域 */
 .speech-area {
-  position: fixed;
-  right: 20px;
-  top: 50%;
-  transform: translateY(-50%);
+  width: 100%;
+  max-width: 450px;
+  margin-bottom: 10vh;
+}
+
+/* 底部控制区 */
+.bottom-control-area {
+  position: relative;
   z-index: 50;
-  max-width: 380px;
+  padding-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
 }
 </style>

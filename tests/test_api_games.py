@@ -16,16 +16,18 @@ if str(_project_root) not in sys.path:
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
+from asgi_lifespan import LifespanManager
 
 from ai_werewolf_core.main import app
 
 
 @pytest_asyncio.fixture
 async def client():
-    """创建 httpx AsyncClient，绑定 FastAPI app。"""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+    """创建 httpx AsyncClient，绑定 FastAPI app，并触发 lifespan 事件。"""
+    async with LifespanManager(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
 
 
 @pytest.mark.asyncio
@@ -40,9 +42,9 @@ async def test_create_game(client):
 
 @pytest.mark.asyncio
 async def test_create_game_invalid_player_count(client):
-    """测试非法的玩家人数: 应返回 400。"""
+    """测试非法的玩家人数: 应返回 422 (FastAPI 自动校验)。"""
     response = await client.post("/api/games", json={"player_count": 3})
-    assert response.status_code == 400
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

@@ -19,7 +19,6 @@ local expected_phase = ARGV[1]
 local target_phase = ARGV[2]
 local new_round = ARGV[3]
 
-local cjson = require "cjson"
 local allowed = cjson.decode(ARGV[4])
 
 local current = redis.call('HGET', key, 'phase')

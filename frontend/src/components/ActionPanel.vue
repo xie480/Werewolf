@@ -59,6 +59,16 @@ const showActionPanel = computed(() => {
   )
 })
 
+/** 是否显示初始化/房主控制面板（INIT 阶段） */
+const showInitPanel = computed(() => {
+  return store.phase === 'INIT'
+})
+
+/** 是否处于无操作的等待状态（没有任何面板需要显示） */
+const isWaiting = computed(() => {
+  return !showSpeechPanel.value && !showVotePanel.value && !showActionPanel.value && !showInitPanel.value
+})
+
 /** 当前阶段可用的技能列表 */
 const availableActions = computed(() => {
   const phase = store.phase
@@ -149,6 +159,19 @@ function actionLabel(type: string): string {
   }
   return map[type] ?? type
 }
+
+/** 开始游戏（INIT 阶段由房主触发） */
+async function handleStartGame(): Promise<void> {
+  if (isLocked.value) return
+  isSubmitting.value = true
+  try {
+    await store.startGame()
+  } catch {
+    // 错误已在 store.error 中
+  } finally {
+    isSubmitting.value = false
+  }
+}
 </script>
 
 <template>
@@ -157,6 +180,23 @@ function actionLabel(type: string): string {
     <div v-if="store.error" class="panel-error">
       {{ store.error }}
       <button class="dismiss-btn" @click="store.error = null">✕</button>
+    </div>
+
+    <!-- 初始化/开始游戏面板（INIT 阶段，房主控制台） -->
+    <div v-if="showInitPanel" class="panel-section" style="align-items: center;">
+      <button
+        class="action-btn action-btn--primary"
+        style="width: 200px; font-size: 16px; padding: 12px;"
+        :disabled="isLocked"
+        @click="handleStartGame"
+      >
+        {{ isLocked ? '启动中...' : '开始游戏' }}
+      </button>
+    </div>
+
+    <!-- 等待状态提示（没有任何面板需要显示时，保持视觉锚点） -->
+    <div v-if="isWaiting" class="panel-section" style="align-items: center; color: #888;">
+      等待游戏进程推进...
     </div>
 
     <!-- 发言面板 -->

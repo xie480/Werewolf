@@ -17,7 +17,6 @@ local key = KEYS[1]
 local expected_status = ARGV[1]
 local target_status = ARGV[2]
 
-local cjson = require "cjson"
 local allowed = cjson.decode(ARGV[3])
 
 local current = redis.call('HGET', key, 'status')
