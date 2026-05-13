@@ -8,7 +8,7 @@ GameRecord 和 PlayerRecord 仅维护当前状态快照，方便快速查询。
 """
 
 from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Enum as SQLEnum, Float
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -144,3 +144,33 @@ class EventRecord(Base):
 
     # 关联
     game: Mapped["GameRecord"] = relationship("GameRecord", back_populates="events")
+
+
+class ModelConfig(Base):
+    """模型配置表 —— 存储 LLM 供应商配置。
+    
+    **Why**: 支持运行时动态增删改模型配置，无需重启服务。
+    """
+
+    __tablename__ = "model_config"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="模型唯一标识")
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, comment="提供者名称")
+    name: Mapped[str] = mapped_column(String(64), nullable=False, comment="业务层使用的模型名称")
+    api_key: Mapped[str] = mapped_column(String(255), nullable=False, comment="API Key")
+    base_url: Mapped[str] = mapped_column(String(255), nullable=False, comment="API 基础 URL")
+    model_name: Mapped[str] = mapped_column(String(64), nullable=False, comment="LLM 实际模型名称")
+    temperature: Mapped[float] = mapped_column(Float, default=0.7, comment="默认温度")
+    max_tokens: Mapped[int] = mapped_column(Integer, default=1024, comment="默认最大 token")
+    timeout: Mapped[float] = mapped_column(Float, default=15.0, comment="硬超时（秒）")
+
+    def to_adapter_config(self) -> dict:
+        """返回给 AdapterFactory 使用的配置字典"""
+        return {
+            "api_key": self.api_key,
+            "base_url": self.base_url,
+            "model_name": self.model_name,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "timeout": self.timeout,
+        }

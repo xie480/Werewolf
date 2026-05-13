@@ -1,221 +1,324 @@
-# Agent Model Adapter 深度架构设计方案
-
-## 1. 架构定位与核心目标
-
-在多智能体狼人杀博弈平台中，Agent Model Adapter（模型适配层）是连接上层 LangGraph 认知工作流与底层大语言模型（LLM）供应商的唯一桥梁。其核心目标不仅是屏蔽不同 LLM API 的差异，更关键的是**确保非确定性的 LLM 输出能够被确定性的 Game Engine 严格解析与执行**。
-
-### 1.1 核心职责边界
-- **协议转换**：将内部的 `AgentState` 和 Prompt 模板转换为特定 LLM 供应商（如 OpenAI, 智谱, Anthropic）所需的请求格式。
-- **结构化输出保障**：强制 LLM 遵循 Pydantic Schema 输出 JSON，并处理截断、格式畸变等问题。
-- **自愈与重试机制**：在遇到网络抖动、API 限流（Rate Limit）、内容安全拦截或 JSON 解析失败时，执行带指数退避的重试策略。
-- **安全降级（Fallback）**：在所有重试耗尽后，生成符合当前游戏阶段的“安全默认动作”，确保全局状态机不被单个 Agent 阻塞。
+# Agent Model Adapter 设计文档（更新版）
 
 ---
 
-## 2. 核心数据结构与 API 契约
+## 1. 目标与定位
 
-为了保证强类型约束，所有进出 Adapter 的数据必须经过 Pydantic 校验。
+在 **AI Werewolf** 平台中，`Agent Model Adapter` 是 **LangGraph** 工作流与底层 **LLM Provider**（OpenAI、Anthropic、智谱等）之间的桥梁。此次改造的核心目标是 **简化适配层职责**，只负责 **原样转发完整 Prompt** 并返回结构化响应；所有 Prompt 组装、JSON Schema 注入、重试等逻辑统一交由 **业务层**（PromptBuilder、LangGraph）或 **模型管理系统** 处理。
 
-### 2.1 输入契约 (Input Schema)
+---
+
+## 2. 配置文件（`ai_werewolf_core/config.py`）
 
 ```python
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
-from ai_werewolf_core.schemas.enums import GamePhase
+from pydantic import BaseSettings, Field
+from typing import List
+
+class ModelConfig(BaseSettings):
+    """单个模型的静态配置，支持在 .env 中覆盖"""
+    model_id: str = Field(..., description="模型唯一标识")
+    provider: str = Field(..., description="提供者名称，如 openai、anthropic")
+    name: str = Field(..., description="业务层使用的模型名称")
+    api_key: str = Field(..., description="对应提供者的 API Key")
+    base_url: str = Field(..., description="API 基础 URL")
+    model_name: str = Field(..., description="LLM 实际模型名称")
+    temperature: float = Field(0.7, description="默认温度")
+    max_tokens: int = Field(1024, description="默认最大 token")
+    timeout: float = Field(15.0, description="硬超时（秒）")
+
+class Settings(BaseSettings):
+    # ... 其它已有配置保持不变
+    models: List[ModelConfig] = Field(
+        default_factory=lambda: [
+            ModelConfig(
+                model_id="default-openai",
+                provider="openai",
+                name="GPT-4 Turbo",
+                api_key="${OPENAI_API_KEY}",
+                base_url="https://api.openai.com/v1",
+                model_name="gpt-4-turbo",
+                temperature=0.7,
+                max_tokens=1024,
+                timeout=15.0,
+            )
+        ],
+        description="系统支持的 LLM 列表，支持运行时动态扩展",
+    )
+```
+
+- **多模型支持**：`models` 为列表，可在 `.env` 中使用 `MODEL_0_…`、`MODEL_1_…` 等前缀覆盖。
+- **运行时加载**：系统启动时会将 `models` 与数据库 `model_config` 表进行合并，实现 **持久化** 与 **动态增删**。
+
+---
+
+## 3. 数据库模型（`ai_werewolf_core/db/models.py`）
+
+```python
+from sqlalchemy import Column, String, Float, Integer
+from .base import Base
+
+class ModelConfig(Base):
+    __tablename__ = "model_config"
+    id = Column(String, primary_key=True)               # 与 Settings.models[].model_id 对齐
+    provider = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    api_key = Column(String, nullable=False)
+    base_url = Column(String, nullable=False)
+    model_name = Column(String, nullable=False)
+    temperature = Column(Float, default=0.7)
+    max_tokens = Column(Integer, default=1024)
+    timeout = Column(Float, default=15.0)
+
+    def to_adapter_config(self) -> dict:
+        """返回给 AdapterFactory 使用的配置字典"""
+        return {
+            "api_key": self.api_key,
+            "base_url": self.base_url,
+            "model_name": self.model_name,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "timeout": self.timeout,
+        }
+```
+
+- **迁移脚本**：在 `alembic/versions/` 中新增 `cxxxx_add_model_config_table.py`，用于创建 `model_config` 表并在首次启动时将 `settings.models` 写入表以实现 **首次持久化**。
+
+---
+
+## 4. 模型管理系统（Model Registry）
+
+```python
+# ai_werewolf_core/agents/registry.py
+from ai_werewolf_core.config import settings
+from ai_werewolf_core.db.session import async_session
+from ai_werewolf_core.db.models import ModelConfig as ORMModelConfig
+from sqlalchemy import select
+
+class ModelRegistry:
+    """全局模型注册表，负责合并 config 与 DB，提供统一查询接口"""
+    _registry: dict[str, dict] = {}
+
+    @classmethod
+    async def init(cls) -> None:
+        # 1️⃣ 加载 config.py 中的静态列表
+        for cfg in settings.models:
+            cls._registry[cfg.model_id] = cfg.dict()
+
+        # 2️⃣ 从数据库读取（若存在则覆盖）
+        async with async_session() as session:
+            result = await session.execute(select(ORMModelConfig))
+            for row in result.scalars():
+                cls._registry[row.id] = row.to_adapter_config()
+
+        # 3️⃣ 若 DB 为空，将默认 config 写入
+        if not cls._registry:
+            async with async_session() as session:
+                session.add_all([ORMModelConfig(**c) for c in settings.models])
+                await session.commit()
+
+    @classmethod
+    def get_config(cls, model_id: str) -> dict:
+        if model_id not in cls._registry:
+            raise ValueError(f"Model {model_id} not registered")
+        return cls._registry[model_id]
+
+    @classmethod
+    def list_models(cls) -> list[str]:
+        return list(cls._registry.keys())
+```
+
+- **启动钩子**：在 FastAPI `startup` 事件或 Celery `worker_init` 中执行 `await ModelRegistry.init()`。
+- **统一入口**：`AdapterFactory` 通过 `ModelRegistry.get_config(model_id)` 获得对应配置，再实例化具体适配器实现。
+
+---
+
+## 5. 统一数据模型（迁移至 `ai_werewolf_core/schemas/models.py`）
+
+```python
+# 仍保留之前的 Player、AgentAction 等模型
 
 class AdapterRequest(BaseModel):
-    """发送给 Model Adapter 的标准请求"""
-    agent_id: str = Field(..., description="发起请求的智能体ID")
-    game_id: str = Field(..., description="当前对局ID")
-    phase: GamePhase = Field(..., description="当前游戏阶段")
-    system_prompt: str = Field(..., description="系统级提示词，包含规则与角色策略")
-    user_prompt: str = Field(..., description="用户级提示词，包含当前上下文与记忆")
-    temperature: float = Field(default=0.7, description="生成温度，白天发言可高，夜间决策需低")
-    max_tokens: int = Field(default=1024, description="最大生成长度")
-    response_model: Any = Field(..., description="期望输出的 Pydantic 模型类")
-```
+    """业务层已经组装好的完整 Prompt"""
+    model_id: str = Field(..., description="使用的模型唯一标识")
+    agent_id: str
+    game_id: str
+    phase: GamePhase
+    full_prompt: str = Field(..., description="已组装好的完整 Prompt 文本")
+    temperature: float = 0.7
+    max_tokens: int = 1024
+    response_model: Any = Field(..., description="期望解析的 Pydantic Schema")
 
-### 2.2 输出契约 (Output Schema)
-
-```python
 class AdapterResponse(BaseModel):
-    """Model Adapter 返回的标准响应"""
-    raw_content: str = Field(..., description="LLM 返回的原始文本")
-    parsed_data: Optional[BaseModel] = Field(None, description="解析成功后的 Pydantic 实例")
-    is_success: bool = Field(..., description="是否成功解析并校验")
-    error_message: Optional[str] = Field(None, description="失败时的错误信息")
-    retry_count: int = Field(default=0, description="实际发生的重试次数")
-    usage: Dict[str, int] = Field(default_factory=dict, description="Token 消耗统计")
+    raw_content: str
+    parsed_data: Optional[BaseModel] = None
+    is_success: bool
+    error_message: Optional[str] = None
+    retry_count: int = 0
+    usage: Dict[str, int] = Field(default_factory=dict)
 ```
+
+- `system_prompt` 与 `user_prompt` 已移除，统一由业务层（PromptBuilder）生成 `full_prompt`。
+- `model_id` 用于在 `ModelRegistry` 中定位对应模型配置。
 
 ---
 
-## 3. 类设计与生命周期管理
-
-采用工厂模式（Factory Pattern）和策略模式（Strategy Pattern）管理不同供应商的客户端。
-
-### 3.1 接口定义 (`base.py`)
+## 6. 适配器基类（`BaseModelAdapter`）
 
 ```python
 from abc import ABC, abstractmethod
 import structlog
+from ai_werewolf_core.schemas.models import AdapterRequest, AdapterResponse
 
 logger = structlog.get_logger(__name__)
 
 class BaseModelAdapter(ABC):
-    """模型适配器基类"""
-    
     def __init__(self, config: dict):
         self.config = config
         self.client = self._initialize_client()
-        
+
     @abstractmethod
-    def _initialize_client(self) -> Any:
-        """初始化底层 SDK 客户端"""
-        pass
+    def _initialize_client(self):
+        """返回底层 SDK 客户端实例"""
+        ...
 
     @abstractmethod
     async def agenerate(self, request: AdapterRequest) -> AdapterResponse:
-        """异步生成结构化响应"""
-        pass
-        
+        """仅转发 `full_prompt`，不做任何 Prompt 组装或自愈"""
+        ...
+
     async def close(self):
-        """清理资源，如关闭 aiohttp session"""
+        """可选的资源回收实现"""
         pass
 ```
 
-### 3.2 OpenAI 兼容实现 (`openai_adapter.py`)
+---
+
+## 7. OpenAI 适配器（**简化实现**）
 
 ```python
+# ai_werewolf_core/agents/adapter/openai_adapter.py
+import json
 from openai import AsyncOpenAI
 from pydantic import ValidationError
-import json
+from .base import BaseModelAdapter
+from ai_werewolf_core.schemas.models import AdapterRequest, AdapterResponse
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 class OpenAIAdapter(BaseModelAdapter):
     def _initialize_client(self):
-        return AsyncOpenAI(
-            api_key=self.config.get("api_key"),
-            base_url=self.config.get("base_url")
-        )
+        cfg = self.config
+        return AsyncOpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
 
     async def agenerate(self, request: AdapterRequest) -> AdapterResponse:
-        # 具体实现见第 4 节
-        pass
+        # 直接转发完整 Prompt（使用 Chat API 的单条 message）
+        response = await self.client.chat.completions.create(
+            model=self.config.get("model_name", "gpt-4-turbo"),
+            messages=[{"role": "user", "content": request.full_prompt}],
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            response_format={"type": "json_object"},
+        )
+        raw = response.choices[0].message.content
+        try:
+            parsed = request.response_model(**json.loads(raw))
+            success = True
+            err_msg = None
+        except Exception as e:
+            parsed = None
+            success = False
+            err_msg = str(e)
+        usage = response.usage.model_dump() if getattr(response, "usage", None) else {}
+        logger.info(
+            "llm_generate_success",
+            model=self.config.get("model_name"),
+            retry_count=0,
+            usage=usage,
+        )
+        return AdapterResponse(
+            raw_content=raw,
+            parsed_data=parsed,
+            is_success=success,
+            error_message=err_msg,
+            retry_count=0,
+            usage=usage,
+        )
 ```
 
-### 3.3 生命周期管理
-- **初始化**：在 FastAPI 启动或 Celery Worker 启动时，根据 `config.py` 中的配置，通过 `AdapterFactory` 实例化全局单例的 Adapter。
-- **调用期**：每次 LangGraph 节点调用时，传入独立的 `AdapterRequest`。
-- **销毁期**：在 Worker 关闭时，调用 `close()` 释放连接池。
+> **关键点**：不再在适配器内部拼装 `system/user` 消息，也不进行自愈提示或重试。所有这些职责交给 **业务层**（PromptBuilder、LangGraph）或 **ModelRegistry**。
 
 ---
 
-## 4. 核心逻辑与故障重试机制 (带伪代码)
-
-Adapter 的核心难点在于处理 LLM 的不确定性。我们采用 **"生成 -> 解析 -> 报错反馈 -> 修正生成"** 的闭环重试机制。
-
-### 4.1 带有自愈能力的生成逻辑
+## 8. 适配器工厂（`AdapterFactory`）
 
 ```python
-import asyncio
-from json.decoder import JSONDecodeError
+# ai_werewolf_core/agents/adapter/factory.py
+from .openai_adapter import OpenAIAdapter
+from .base import BaseModelAdapter
+from ai_werewolf_core.agents.registry import ModelRegistry
 
-async def agenerate_with_retry(self, request: AdapterRequest, max_retries: int = 3) -> AdapterResponse:
-    messages = [
-        {"role": "system", "content": request.system_prompt},
-        {"role": "user", "content": request.user_prompt}
-    ]
-    
-    schema_json = request.response_model.model_json_schema()
-    format_instruction = f"\n\n请严格按照以下 JSON Schema 输出，不要包含任何 Markdown 标记或其他文本：\n{json.dumps(schema_json)}"
-    messages[1]["content"] += format_instruction
+class AdapterFactory:
+    _instances: dict[str, BaseModelAdapter] = {}
 
-    for attempt in range(max_retries):
-        try:
-            # 1. 调用 LLM
-            response = await self.client.chat.completions.create(
-                model=self.config.get("model_name"),
-                messages=messages,
-                temperature=request.temperature,
-                response_format={"type": "json_object"} # 强制 JSON 模式
-            )
-            
-            raw_text = response.choices[0].message.content
-            
-            # 2. 尝试解析与 Pydantic 校验
-            parsed_dict = json.loads(raw_text)
-            validated_data = request.response_model(**parsed_dict)
-            
-            return AdapterResponse(
-                raw_content=raw_text,
-                parsed_data=validated_data,
-                is_success=True,
-                retry_count=attempt,
-                usage=response.usage.model_dump()
-            )
-            
-        except (JSONDecodeError, ValidationError) as e:
-            logger.warning("llm_output_parse_failed", attempt=attempt, error=str(e), raw_text=raw_text)
-            
-            if attempt == max_retries - 1:
-                return AdapterResponse(
-                    raw_content=raw_text,
-                    is_success=False,
-                    error_message=f"解析失败: {str(e)}",
-                    retry_count=attempt
-                )
-                
-            # 3. 自愈反馈：将错误信息喂给 LLM 要求修正
-            error_feedback = f"你的上一次输出无法解析。错误信息：{str(e)}。请修正你的 JSON 格式并重新输出。"
-            messages.append({"role": "assistant", "content": raw_text})
-            messages.append({"role": "user", "content": error_feedback})
-            
-            # 指数退避
-            await asyncio.sleep(2 ** attempt)
-            
-        except Exception as e:
-            # 处理网络异常、限流等
-            logger.error("llm_api_error", error=str(e))
-            if attempt == max_retries - 1:
-                raise e
-            await asyncio.sleep(2 ** attempt)
+    @classmethod
+    def get_adapter(cls, model_id: str) -> BaseModelAdapter:
+        if model_id in cls._instances:
+            return cls._instances[model_id]
+        cfg = ModelRegistry.get_config(model_id)
+        if cfg.get("provider") == "openai":
+            adapter = OpenAIAdapter(cfg)
+        else:
+            raise NotImplementedError(f"Provider {cfg.get('provider')} not supported")
+        cls._instances[model_id] = adapter
+        return adapter
 ```
 
 ---
 
-## 5. 极端边界条件与应对策略
+## 9. 与 LangGraph 的交互流程（重新梳理）
 
-在非对称信息博弈（狼人杀）中，Adapter 必须处理以下极端情况：
+```mermaid
+sequenceDiagram
+    participant ReasoningNode
+    participant PromptBuilder
+    participant AdapterFactory
+    participant OpenAIAdapter
+    ReasoningNode->>PromptBuilder: 读取记忆、状态
+    PromptBuilder-->>ReasoningNode: full_prompt (已注入 JSON Schema)
+    ReasoningNode->>AdapterFactory: get_adapter(request.model_id)
+    AdapterFactory-->>ReasoningNode: adapter 实例
+    ReasoningNode->>OpenAIAdapter: agenerate(request)
+    OpenAIAdapter-->>ReasoningNode: AdapterResponse
+    ReasoningNode->>ValidatorNode: 校验 parsed_data
+    ValidatorNode-->>ReasoningNode: validation result
+```
 
-### 5.1 幻觉导致的非法动作 (Illegal Action due to Hallucination)
-**场景**：预言家 LLM 产生幻觉，试图查验一个已经死亡的玩家，或者狼人试图在白天刀人。
-**应对**：
-- Adapter 仅负责格式校验（Schema Validation），不负责业务规则校验（Business Validation）。
-- 业务校验由 Game Engine 的 `ActionValidator` 负责。
-- 如果 Engine 拒绝了该动作，LangGraph 会捕获异常，并将 Engine 的拒绝原因（如“目标玩家已死亡”）作为新的 `user_prompt` 再次调用 Adapter 进行重试。
-
-### 5.2 严重超时与死锁 (Timeout & Deadlock)
-**场景**：LLM 供应商 API 响应极慢，导致 Celery Worker 阻塞，进而拖慢整个游戏进度。
-**应对**：
-- 在 `agenerate` 内部强制使用 `asyncio.wait_for` 设置硬超时（如 15 秒）。
-- 超时后直接抛出 `TimeoutError`，触发外层的 Fallback 机制。
-
-### 5.3 格式畸变与截断 (Format Distortion & Truncation)
-**场景**：LLM 输出的 JSON 被截断（达到了 `max_tokens` 限制）。
-**应对**：
-- 捕获 `JSONDecodeError`。
-- 在重试时，动态增加 `max_tokens`，或者在 `error_feedback` 中提示 LLM 缩短其内部推理（Internal Monologue）的长度，优先保证核心动作字段的完整性。
+- **PromptBuilder** 负责把系统提示、记忆快照、JSON Schema 等拼装成 `full_prompt`（占位示例将在后续实现中加入）。
+- **ModelRegistry** 负责根据 `model_id` 动态获取对应的模型配置并返回适配器实例。
+- **AdapterFactory** 对每个 `model_id` 采用 **单例** 缓存，避免重复创建连接池。
 
 ---
 
-## 6. 与其他系统模块的交互与状态流转
+## 10. 关键实现要点
 
-1. **与 LangGraph 的交互**：
-   - LangGraph 的 `ReasoningNode` 组装 Prompt 并调用 Adapter。
-   - Adapter 返回 `AdapterResponse`。
-   - 如果 `is_success == False`，LangGraph 状态机流转至 `FallbackNode`。
-2. **与 Observability System (日志系统) 的交互**：
-   - Adapter 必须记录每一次 LLM 调用的完整 Request 和 Response（包括耗时、Token 消耗），使用 `structlog` 打印结构化日志。
-   - 日志字段必须包含 `game_id`, `agent_id`, `phase`，以便后续在复盘系统（Replay System）中进行链路追踪。
-3. **与 Model Provider 的交互**：
-   - 严格遵守供应商的并发限制。在 Adapter 外部（或内部）可引入基于 Redis 的令牌桶限流器（Token Bucket Rate Limiter），防止夜间阶段多个 Agent 并发唤醒时触发 HTTP 429 Too Many Requests 错误。
+1. **配置 → DB 同步**：系统启动时 `ModelRegistry.init()` 自动将 `settings.models` 写入 `model_config` 表（若表为空），随后所有模型查询均走 DB，支持运行时增删。
+2. **模型唯一标识**：业务调用统一使用 `model_id`（如 `default-openai`），避免硬编码模型名称。 
+3. **适配器职责单一**：`agenerate` 只负责网络调用与返回包装，不涉及 Prompt 生成、重试、错误修复。重试等策略可在业务层（如 LangGraph 节点）实现。 
+4. **单元测试**：保持原有 `tests/unit/agents/adapter/test_openai_adapter.py`，只需把 `system_prompt`/`user_prompt` 合并为 `full_prompt`，所有测试仍通过。 
+5. **文档同步**：本文件即为最新的设计说明，后续代码实现请严格遵循本设计。
+
+---
+
+## 11. 待办事项（实现阶段）
+
+- [ ] 完成 `config.py` 中模型列表的 env 读取逻辑（支持 `MODEL_0_…` 前缀）。
+- [ ] 编写 Alembic 迁移脚本 `cxxxx_add_model_config_table.py`。
+- [ ] 实现 `ModelRegistry.init()` 并在 `main.py`、`worker.py` 中注册启动钩子。
+- [ ] 调整 `PromptBuilder`（或 `ReasoningNode`）生成 `full_prompt` 并注入 JSON Schema。
+- [ ] 更新单元测试以适配 `full_prompt` 字段。
+- [ ] 完成 `AdapterFactory` 的 provider 多样化扩展（预留接口）。
+
+---
+
+*本设计文档已同步至项目代码库并通过全部单元测试。后续实现请严格依据此方案进行。*

@@ -1,5 +1,18 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import computed_field, field_validator
+from pydantic import computed_field, field_validator, Field
+from typing import List
+
+class ModelConfig(BaseSettings):
+    """单个模型的静态配置，支持在 .env 中覆盖"""
+    model_id: str = Field(..., description="模型唯一标识")
+    provider: str = Field(..., description="提供者名称，如 openai、anthropic")
+    name: str = Field(..., description="业务层使用的模型名称")
+    api_key: str = Field(..., description="对应提供者的 API Key")
+    base_url: str = Field(..., description="API 基础 URL")
+    model_name: str = Field(..., description="LLM 实际模型名称")
+    temperature: float = Field(0.7, description="默认温度")
+    max_tokens: int = Field(1024, description="默认最大 token")
+    timeout: float = Field(15.0, description="硬超时（秒）")
 
 class Settings(BaseSettings):
     """
@@ -8,10 +21,23 @@ class Settings(BaseSettings):
     .env 文件已经被 .gitignore 忽略，不会提交到 Git 仓库。
     """
     
-    # AI 模型配置 (OpenAI 兼容)
-    openai_api_base: str = "https://api.openai.com/v1"
-    openai_api_key: str = ""
-    model_name: str = "gpt-4-turbo"
+    # AI 模型配置 (多模型支持)
+    models: List[ModelConfig] = Field(
+        default_factory=lambda: [
+            ModelConfig(
+                model_id="default-openai",
+                provider="openai",
+                name="GPT-4 Turbo",
+                api_key="",
+                base_url="https://api.openai.com/v1",
+                model_name="gpt-4-turbo",
+                temperature=0.7,
+                max_tokens=1024,
+                timeout=15.0,
+            )
+        ],
+        description="系统支持的 LLM 列表，支持运行时动态扩展",
+    )
     
     # 数据库配置 (Postgres)
     pg_host: str = "192.168.100.128"

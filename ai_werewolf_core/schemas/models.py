@@ -185,3 +185,24 @@ class Event(BaseModel):
 
     class Config:
         use_enum_values = True
+
+
+class AdapterRequest(BaseModel):
+    """业务层已经组装好的完整 Prompt"""
+    model_id: str = Field(..., description="使用的模型唯一标识")
+    agent_id: str
+    game_id: str
+    phase: GamePhase
+    full_prompt: str = Field(..., description="已组装好的完整 Prompt 文本")
+    temperature: float = 0.7
+    max_tokens: int = 1024
+    response_model: Any = Field(..., description="期望解析的 Pydantic Schema")
+
+
+class AdapterResponse(BaseModel):
+    raw_content: str
+    parsed_data: Optional[BaseModel] = None
+    is_success: bool
+    error_message: Optional[str] = None
+    retry_count: int = 0
+    usage: Dict[str, int] = Field(default_factory=dict)
