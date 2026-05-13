@@ -166,8 +166,9 @@ class ModelConfig(Base):
 
     def to_adapter_config(self) -> dict:
         """返回给 AdapterFactory 使用的配置字典"""
+        from ai_werewolf_core.utils.crypto import decrypt_api_key
         return {
-            "api_key": self.api_key,
+            "api_key": decrypt_api_key(self.api_key),
             "base_url": self.base_url,
             "model_name": self.model_name,
             "temperature": self.temperature,

@@ -18,7 +18,7 @@ class BaseModelAdapter(ABC):
         pass
 
     @abstractmethod
-    async def agenerate(self, request: AdapterRequest) -> AdapterResponse:
+    async def agenerate(self, request: AdapterRequest, max_retries: int = 3) -> AdapterResponse:
         """异步生成结构化响应"""
         pass
         
