@@ -155,9 +155,9 @@ class SpecialActionResolver:
         """
         # ── 猎人开枪 ──
         if current_phase == GamePhase.HUNTER_SHOOT:
-            if action.action_type == ActionType.HUNTER_SHOOT:
+            if action.action_type == ActionType.HUNTER_SHOOT.value:
                 return await self._handle_hunter_shoot(action, roles)
-            if action.action_type == ActionType.PASS:
+            if action.action_type == ActionType.PASS.value:
                 return await self._handle_hunter_pass(action, roles)
 
         # 未匹配任何特殊行动处理器

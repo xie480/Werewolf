@@ -226,7 +226,7 @@ class ActionResolver:
             raise ActionValidationError(
                 action,
                 f"角色 [{actor_role.role_type.value}] 在阶段 [{current_phase.value}] "
-                f"无权执行动作 [{action.action_type.value}]",
+                f"无权执行动作 [{action.action_type}]",
             )
 
         # ── 校验 4: 目标有效性（仅针对需要目标的操作） ──
@@ -237,7 +237,7 @@ class ActionResolver:
         self._logger.info(
             "action_submitted",
             actor_id=action.actor_id,
-            action_type=action.action_type.value,
+            action_type=action.action_type,
             target_id=action.target_id,
             phase=current_phase.value,
             total_pending=len(self.pending_actions),
@@ -269,19 +269,19 @@ class ActionResolver:
         Raises:
             ActionValidationError: 目标不合法。
         """
-        requires_target = action.action_type in (
-            ActionType.WOLF_KILL,
-            ActionType.WITCH_SAVE,
-            ActionType.WITCH_POISON,
-            ActionType.SEER_CHECK,
-            ActionType.HUNTER_SHOOT,
-            ActionType.VOTE,
-        )
+        requires_target = action.action_type in {
+            ActionType.WOLF_KILL.value,
+            ActionType.WITCH_SAVE.value,
+            ActionType.WITCH_POISON.value,
+            ActionType.SEER_CHECK.value,
+            ActionType.HUNTER_SHOOT.value,
+            ActionType.VOTE.value,
+        }
 
         if requires_target and action.target_id is None:
             raise ActionValidationError(
                 action,
-                f"动作 [{action.action_type.value}] 必须指定目标",
+                f"动作 [{action.action_type}] 必须指定目标",
             )
 
         if action.target_id is not None:
@@ -296,7 +296,7 @@ class ActionResolver:
             # WITCH_SAVE 仅能救狼人原始刀人目标
             # Why: 标准狼人杀规则——女巫的解药只能救当晚被狼人杀害的玩家，
             # 不能凭空复活已死的玩家或救毒杀目标。
-            if action.action_type == ActionType.WITCH_SAVE:
+            if action.action_type == ActionType.WITCH_SAVE.value:
                 if self._current_night_wolf_target is None:
                     raise ActionValidationError(
                         action,
@@ -328,7 +328,7 @@ class ActionResolver:
             action: 已通过校验的动作。
             actor_role: 行动者的角色实例。
         """
-        if action.action_type == ActionType.WOLF_KILL and action.target_id is not None:
+        if action.action_type == ActionType.WOLF_KILL.value and action.target_id is not None:
             self.pending_deaths[action.target_id] = ActionType.WOLF_KILL
             self._current_night_wolf_target = action.target_id
             self._logger.info(
@@ -336,7 +336,7 @@ class ActionResolver:
                 target_id=action.target_id,
             )
 
-        elif action.action_type == ActionType.WITCH_SAVE and action.target_id is not None:
+        elif action.action_type == ActionType.WITCH_SAVE.value and action.target_id is not None:
             # 仅当目标在 pending_deaths 中且原因为 WOLF_KILL 时，才能移除
             # Why: 解药只能反制狼刀，不能反解毒药或之前的死亡
             if (
@@ -355,7 +355,7 @@ class ActionResolver:
                     reason="目标不在狼刀死亡名单中",
                 )
 
-        elif action.action_type == ActionType.WITCH_POISON and action.target_id is not None:
+        elif action.action_type == ActionType.WITCH_POISON.value and action.target_id is not None:
             self.pending_deaths[action.target_id] = ActionType.WITCH_POISON
             self._logger.info(
                 "draft_witch_poison",
@@ -489,7 +489,7 @@ class ActionResolver:
         """记录已消费毒药的女巫 ID，防止重复消费。"""
 
         for action in self.pending_actions:
-            if action.action_type == ActionType.WITCH_SAVE and action.target_id is not None:
+            if action.action_type == ActionType.WITCH_SAVE.value and action.target_id is not None:
                 witch = roles.get(action.actor_id)
                 if isinstance(witch, WitchRole):
                     if action.actor_id in consumed_antidote:
@@ -503,7 +503,7 @@ class ActionResolver:
                         target_id=action.target_id,
                     )
 
-            elif action.action_type == ActionType.WITCH_POISON and action.target_id is not None:
+            elif action.action_type == ActionType.WITCH_POISON.value and action.target_id is not None:
                 witch = roles.get(action.actor_id)
                 if isinstance(witch, WitchRole):
                     if action.actor_id in consumed_poison:
@@ -581,6 +581,97 @@ class ActionResolver:
         if not self.pending_actions:
             return 0
         return max(action.round for action in self.pending_actions)
+
+    # ------------------------------------------------------------------
+    # 动作完成度检查
+    # ------------------------------------------------------------------
+
+    def is_action_completed(
+        self,
+        roles: Dict[str, BaseRole],
+        current_phase: GamePhase,
+    ) -> bool:
+        """检查当前阶段的动作是否已全部收集完毕。
+
+        判断逻辑：
+        - NIGHT_WOLF_ACT: 所有存活的狼人都已提交 WOLF_KILL 动作
+        - NIGHT_WITCH_ACT: 女巫已提交 WITCH_SAVE / WITCH_POISON / PASS
+        - NIGHT_SEER_ACT: 预言家已提交 SEER_CHECK
+
+        Args:
+            roles: 角色映射。
+            current_phase: 当前游戏阶段。
+
+        Returns:
+            True 表示所有预期动作已收集完毕。
+        """
+        if current_phase == GamePhase.NIGHT_WOLF_ACT:
+            return self._is_wolf_phase_completed(roles)
+        elif current_phase == GamePhase.NIGHT_WITCH_ACT:
+            return self._is_witch_phase_completed(roles)
+        elif current_phase == GamePhase.NIGHT_SEER_ACT:
+            return self._is_seer_phase_completed(roles)
+        return False
+
+    def _is_wolf_phase_completed(
+        self, roles: Dict[str, BaseRole]
+    ) -> bool:
+        """检查所有存活狼人是否已提交刀人动作。"""
+        from ai_werewolf_core.schemas.enums import Role
+
+        alive_wolves = [
+            pid for pid, role in roles.items()
+            if role.role_type == Role.WEREWOLF and role.is_alive
+        ]
+        if not alive_wolves:
+            return False
+
+        submitted_wolves = {
+            a.actor_id for a in self.pending_actions
+            if a.action_type == ActionType.WOLF_KILL.value
+        }
+        return set(alive_wolves).issubset(submitted_wolves)
+
+    def _is_witch_phase_completed(
+        self, roles: Dict[str, BaseRole]
+    ) -> bool:
+        """检查女巫是否已提交救/毒/PASS 动作。"""
+        witch_ids = [
+            pid for pid, role in roles.items()
+            if role.role_type == Role.WITCH and role.is_alive
+        ]
+        if not witch_ids:
+            return True  # 女巫已死亡，自动完成
+
+        witch_actions = {
+            a.action_type
+            for a in self.pending_actions
+            if a.actor_id in witch_ids
+        }
+        witch_completed_actions = {
+            ActionType.WITCH_SAVE.value,
+            ActionType.WITCH_POISON.value,
+            ActionType.PASS.value,
+        }
+        return bool(witch_actions & witch_completed_actions)
+
+    def _is_seer_phase_completed(
+        self, roles: Dict[str, BaseRole]
+    ) -> bool:
+        """检查预言家是否已提交查验动作。"""
+        seer_ids = [
+            pid for pid, role in roles.items()
+            if role.role_type == Role.SEER and role.is_alive
+        ]
+        if not seer_ids:
+            return True
+
+        seer_actions = {
+            a.actor_id
+            for a in self.pending_actions
+            if a.action_type == ActionType.SEER_CHECK.value
+        }
+        return bool(set(seer_ids) & seer_actions)
 
     # ------------------------------------------------------------------
     # 查询接口

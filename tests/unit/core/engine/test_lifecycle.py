@@ -428,3 +428,57 @@ class TestLifecycleFullFlow:
 
         assert await lifecycle.get_status() == GameStatus.FINISHED
         assert await lifecycle.state_machine.get_current_phase() == GamePhase.GAME_OVER
+
+
+class TestPhaseTimeout:
+    """阶段倒计时时长计算测试。"""
+
+    def test_night_start_quick(self):
+        """NIGHT_START 倒计时为 3 秒。"""
+        assert LifecycleManager.get_phase_timeout(GamePhase.NIGHT_START) == 3
+
+    def test_day_start_quick(self):
+        """DAY_START 倒计时为 3 秒。"""
+        assert LifecycleManager.get_phase_timeout(GamePhase.DAY_START) == 3
+
+    def test_resolve_phases_quick(self):
+        """结算阶段倒计时为 3 秒。"""
+        assert LifecycleManager.get_phase_timeout(GamePhase.NIGHT_RESOLVE) == 3
+        assert LifecycleManager.get_phase_timeout(GamePhase.VOTE_RESOLVE) == 3
+
+    def test_action_phases_normal(self):
+        """行动/投票/发言阶段倒计时为 60 秒。"""
+        assert LifecycleManager.get_phase_timeout(GamePhase.NIGHT_WOLF_ACT) == 60
+        assert LifecycleManager.get_phase_timeout(GamePhase.NIGHT_WITCH_ACT) == 60
+        assert LifecycleManager.get_phase_timeout(GamePhase.NIGHT_SEER_ACT) == 60
+        assert LifecycleManager.get_phase_timeout(GamePhase.DAY_DISCUSSION) == 60
+        assert LifecycleManager.get_phase_timeout(GamePhase.DAY_VOTE) == 60
+
+    def test_game_over_zero(self):
+        """GAME_OVER 倒计时为 0。"""
+        assert LifecycleManager.get_phase_timeout(GamePhase.GAME_OVER) == 0
+
+
+class TestTaskIdManagement:
+    """task_id CRUD 操作测试。"""
+
+    @pytest.mark.asyncio
+    async def test_save_and_get_task_id(self, lifecycle):
+        """可以保存并读取 task_id。"""
+        await lifecycle.save_task_id("test_task_123")
+        result = await lifecycle.get_task_id()
+        assert result == "test_task_123"
+
+    @pytest.mark.asyncio
+    async def test_clear_task_id(self, lifecycle):
+        """可以清除 task_id。"""
+        await lifecycle.save_task_id("test_task_456")
+        await lifecycle.clear_task_id()
+        result = await lifecycle.get_task_id()
+        assert result is None or result == ""
+
+    @pytest.mark.asyncio
+    async def test_get_task_id_nonexistent(self, lifecycle):
+        """不存在时返回 None 或空。"""
+        result = await lifecycle.get_task_id()
+        assert result is None or result == ""

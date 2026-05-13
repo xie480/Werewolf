@@ -30,6 +30,9 @@ class RedisKeys:
     PLAYER_INFO_PREFIX: str = "werewolf:players"
     """玩家身份信息 Hash Key 前缀。完整格式: werewolf:players:{game_id}"""
 
+    GAME_TASK_PREFIX: str = "werewolf:task"
+    """Celery 任务 ID Hash Key 前缀。完整格式: werewolf:task:{game_id}:current_task"""
+
     ALIVE_BITMAP_PREFIX: str = "werewolf:alive"
     """玩家存活状态 BitMap Key 前缀。完整格式: werewolf:alive:{game_id}"""
 
@@ -66,3 +69,8 @@ class RedisKeys:
     def alive_bitmap(game_id: str) -> str:
         """构建存活状态 BitMap Key: werewolf:alive:{game_id}"""
         return f"{RedisKeys.ALIVE_BITMAP_PREFIX}:{game_id}"
+
+    @staticmethod
+    def game_task_id(game_id: str) -> str:
+        """构建 Celery 任务 ID 存储 Key: werewolf:task:{game_id}:current_task"""
+        return f"{RedisKeys.GAME_TASK_PREFIX}:{game_id}:current_task"

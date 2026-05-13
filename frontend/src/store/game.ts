@@ -112,7 +112,12 @@ export const useGameStore = defineStore('game', () => {
     return 60
   }
 
-  /** 启动阶段倒计时，到期后自动调用 advancePhase */
+  /** 启动阶段倒计时，仅用于 UI 进度条展示。
+   *
+   * **Why**: 阶段推进已由后端 Celery 延迟任务接管（参见后台自动推进机制设计）。
+   * 前端不再主动调用 advancePhase()，仅通过 WebSocket 推送的
+   * PHASE_TRANSITION_EVENT 更新阶段状态。
+   */
   function startPhaseCountdown(): void {
     // 先清理旧定时器
     stopPhaseCountdown()
@@ -126,8 +131,8 @@ export const useGameStore = defineStore('game', () => {
       phaseCountdown.value--
       if (phaseCountdown.value <= 0) {
         stopPhaseCountdown()
-        // 倒计时到期，自动推进阶段
-        advancePhase()
+        // 倒计时仅用于 UI 展示，不再调用 advancePhase()
+        // 阶段推进由后端 Celery 延迟任务接管
       }
     }, 1_000)
   }
@@ -393,6 +398,8 @@ export const useGameStore = defineStore('game', () => {
       case EventType.PHASE_TRANSITION_EVENT:
         if (event.payload.to_phase) {
           phase.value = event.payload.to_phase as string
+          // 后端推进阶段后，重新启动 UI 倒计时
+          startPhaseCountdown()
         }
         break
 

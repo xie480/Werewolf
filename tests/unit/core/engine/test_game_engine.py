@@ -583,3 +583,143 @@ class TestAdvanceResult:
         )
         assert result.game_over is True
         assert result.winner == "VILLAGER"
+
+
+# ============================================================================
+# schedule_phase_timer 测试
+# ============================================================================
+
+
+class TestSchedulePhaseTimer:
+    """schedule_phase_timer 方法测试。"""
+
+    @pytest.mark.asyncio
+    async def test_schedule_phase_timer_success(
+        self, engine: GameEngine
+    ) -> None:
+        """调度阶段定时器应成功创建并保存 task_id。"""
+        from unittest.mock import ANY
+
+        with patch(
+            "ai_werewolf_core.tasks.game.advance_phase_task"
+        ) as mock_task, patch.object(
+            engine.lifecycle, "save_task_id", AsyncMock()
+        ) as mock_save:
+            mock_task.apply_async = MagicMock(
+                return_value=MagicMock(id="mock_task_id_123")
+            )
+
+            await engine.schedule_phase_timer(GamePhase.NIGHT_WOLF_ACT)
+
+            mock_task.apply_async.assert_called_once()
+            call_kwargs = mock_task.apply_async.call_args[1]
+            assert call_kwargs["countdown"] == 60
+            mock_save.assert_called_once_with("mock_task_id_123")
+
+    @pytest.mark.asyncio
+    async def test_schedule_phase_timer_game_over(
+        self, engine: GameEngine
+    ) -> None:
+        """GAME_OVER 阶段不调度定时器。"""
+        with patch(
+            "ai_werewolf_core.tasks.game.advance_phase_task"
+        ) as mock_task:
+            mock_task.apply_async = MagicMock()
+
+            await engine.schedule_phase_timer(GamePhase.GAME_OVER)
+
+            mock_task.apply_async.assert_not_called()
+
+
+# ============================================================================
+# _check_early_termination 测试
+# ============================================================================
+
+
+class TestEarlyTermination:
+    """提前结束机制测试。"""
+
+    @pytest.mark.asyncio
+    async def test_submit_action_is_accepted(
+        self, engine: GameEngine
+    ) -> None:
+        """狼人动作通过 mock 门禁后应被接受。"""
+        with patch.object(
+            engine.state_machine, "get_current_phase",
+            AsyncMock(return_value=GamePhase.NIGHT_WOLF_ACT),
+        ), patch.object(
+            engine.action_gate, "admit",
+            AsyncMock(return_value=AdmitResult.accepted()),
+        ):
+            action = make_action(
+                actor_id="player_1",
+                action_type=ActionType.WOLF_KILL,
+                target_id="player_2",
+                phase=GamePhase.NIGHT_WOLF_ACT,
+            )
+            result = await engine.submit_action(action)
+            assert result.accepted is True
+
+    @pytest.mark.asyncio
+    async def test_wolf_actions_stored_in_resolver(
+        self, engine: GameEngine
+    ) -> None:
+        """通过 submit_action 提交的狼人动作应存入 resolver 的 pending_actions。"""
+        with patch.object(
+            engine.state_machine, "get_current_phase",
+            AsyncMock(return_value=GamePhase.NIGHT_WOLF_ACT),
+        ), patch.object(
+            engine.action_gate, "admit",
+            AsyncMock(return_value=AdmitResult.accepted()),
+        ):
+            wolves = [pid for pid, r in engine.roles.items() if r.role_type == Role.WEREWOLF]
+            for w in wolves:
+                action = make_action(
+                    actor_id=w,
+                    action_type=ActionType.WOLF_KILL,
+                    target_id="player_2",
+                    phase=GamePhase.NIGHT_WOLF_ACT,
+                )
+                await engine.submit_action(action)
+
+            wolf_kills = [
+                a for a in engine.resolver.pending_actions
+                if a.action_type == ActionType.WOLF_KILL
+            ]
+            assert len(wolf_kills) == len(wolves)
+            assert engine.resolver.is_action_completed(
+                engine.roles, GamePhase.NIGHT_WOLF_ACT
+            )
+
+    @pytest.mark.asyncio
+    async def test_is_action_completed_partial(
+        self, engine: GameEngine
+    ) -> None:
+        """部分狼人提交时 is_action_completed 返回 False。"""
+        # 创建一个有多只狼的角色配置
+        multi_wolf_roles = make_roles(
+            ("player_1", Role.WEREWOLF),
+            ("player_2", Role.WEREWOLF),
+            ("player_3", Role.VILLAGER),
+            ("player_4", Role.VILLAGER),
+        )
+        multi_engine = GameEngine("game_multi", make_mock_event_bus(), multi_wolf_roles)
+
+        with patch.object(
+            multi_engine.state_machine, "get_current_phase",
+            AsyncMock(return_value=GamePhase.NIGHT_WOLF_ACT),
+        ), patch.object(
+            multi_engine.action_gate, "admit",
+            AsyncMock(return_value=AdmitResult.accepted()),
+        ):
+            action = make_action(
+                actor_id="player_1",
+                action_type=ActionType.WOLF_KILL,
+                target_id="player_3",
+                phase=GamePhase.NIGHT_WOLF_ACT,
+            )
+            await multi_engine.submit_action(action)
+            # 只有 player_1 提交，player_2 未提交
+            assert not multi_engine.resolver.is_action_completed(
+                multi_engine.roles, GamePhase.NIGHT_WOLF_ACT
+            )

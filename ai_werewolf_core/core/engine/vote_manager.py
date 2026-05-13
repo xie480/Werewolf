@@ -777,6 +777,36 @@ class VoteManager:
         return self.pk_candidates is not None
 
     # ------------------------------------------------------------------
+    # 动作完成度检查
+    # ------------------------------------------------------------------
+
+    async def is_action_completed(
+        self, roles: Dict[str, BaseRole]
+    ) -> bool:
+        """检查当前投票阶段是否所有存活玩家都已投票。
+
+        通过比较 Redis 中已投票人数与存活且有投票权的玩家数量来判断。
+
+        Args:
+            roles: 角色映射。
+
+        Returns:
+            True 表示所有应投票的玩家都已提交选票。
+        """
+        # 获取所有存活玩家（有投票权）
+        eligible_voters = [
+            pid for pid, role in roles.items()
+            if role.is_alive
+        ]
+        if not eligible_voters:
+            return False
+
+        # 获取已投票人数
+        voted_count = await self.get_voter_count()
+
+        return voted_count >= len(eligible_voters)
+
+    # ------------------------------------------------------------------
     # 生命周期管理
     # ------------------------------------------------------------------
 

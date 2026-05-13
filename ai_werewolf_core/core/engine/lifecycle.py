@@ -42,6 +42,10 @@ from ai_werewolf_core.schemas.enums import (
     EventType,
     GamePhase,
     GameStatus,
+    NIGHT_ACT_PHASES,
+    RESOLVE_PHASES,
+    SPEECH_PHASES,
+    VOTE_PHASES,
     Visibility,
 )
 from ai_werewolf_core.schemas.models import Event
@@ -64,9 +68,15 @@ logger = get_logger(__name__)
 CTX_FIELD_STATUS: str = "status"
 CTX_FIELD_PHASE: str = "phase"
 CTX_FIELD_ROUND: str = "round"
+CTX_FIELD_TASK_ID: str = "current_task_id"
 
 # 对局上下文 TTL (秒) —— 对局结束后 1 小时
 GAME_CONTEXT_TTL_SEC: int = 3600
+
+# 阶段倒计时规则 (秒)
+# 结算/过渡阶段 3 秒快速通过，行动/投票/发言阶段 60 秒
+PHASE_TIMEOUT_QUICK: int = 3
+PHASE_TIMEOUT_NORMAL: int = 60
 
 
 class LifecycleManager:
@@ -611,6 +621,76 @@ class LifecycleManager:
     # ------------------------------------------------------------------
     # 状态恢复
     # ------------------------------------------------------------------
+
+    # ==================================================================
+    # 阶段倒计时与 Celery 任务管理
+    # ==================================================================
+
+    @staticmethod
+    def get_phase_timeout(phase: GamePhase) -> int:
+        """根据阶段类型获取倒计时时长。
+
+        NIGHT_START (黑暗降临) -> 3 秒
+        结算阶段 (NIGHT_RESOLVE, VOTE_RESOLVE) -> 3 秒
+        DAY_START (天亮了) -> 3 秒
+        夜间行动/投票/发言阶段 -> 60 秒
+
+        Args:
+            phase: 当前游戏阶段。
+
+        Returns:
+            倒计时秒数。
+        """
+        if phase == GamePhase.GAME_OVER:
+            return 0
+        if phase in (GamePhase.NIGHT_START, GamePhase.DAY_START):
+            return PHASE_TIMEOUT_QUICK
+        if phase in RESOLVE_PHASES:
+            return PHASE_TIMEOUT_QUICK
+        return PHASE_TIMEOUT_NORMAL
+
+    async def save_task_id(self, task_id: str) -> None:
+        """保存 Celery 任务 ID 到 Redis 上下文。
+
+        Args:
+            task_id: Celery 任务 ID。
+        """
+        try:
+            redis = await self._get_redis()
+            key = self._context_key()
+            await redis.hset(key, CTX_FIELD_TASK_ID, task_id)
+            self._logger.debug("task_id_saved", task_id=task_id)
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            self._logger.warning(
+                "保存 task_id 失败",
+                task_id=task_id,
+                error=str(e),
+            )
+
+    async def get_task_id(self) -> Optional[str]:
+        """从 Redis 上下文获取当前 Celery 任务 ID。
+
+        Returns:
+            任务 ID 字符串，不存在时返回 None。
+        """
+        try:
+            redis = await self._get_redis()
+            key = self._context_key()
+            task_id = await redis.hget(key, CTX_FIELD_TASK_ID)
+            return task_id.decode() if isinstance(task_id, bytes) else task_id
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            self._logger.warning("读取 task_id 失败", error=str(e))
+            return None
+
+    async def clear_task_id(self) -> None:
+        """从 Redis 上下文清除 Celery 任务 ID。"""
+        try:
+            redis = await self._get_redis()
+            key = self._context_key()
+            await redis.hdel(key, CTX_FIELD_TASK_ID)
+            self._logger.debug("task_id_cleared")
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            self._logger.warning("清除 task_id 失败", error=str(e))
 
     async def load_from_redis(self) -> bool:
         """从 Redis 恢复对局状态（Worker 重启后重建上下文）。

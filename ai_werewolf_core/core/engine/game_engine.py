@@ -28,9 +28,16 @@ from ai_werewolf_core.core.engine.exceptions import (
     ActionValidationError,
     GameNotRunnableError,
 )
-from ai_werewolf_core.core.engine.lifecycle import LifecycleManager
+from ai_werewolf_core.core.engine.lifecycle import (
+    LifecycleManager,
+    PHASE_TIMEOUT_NORMAL,
+    PHASE_TIMEOUT_QUICK,
+)
 from ai_werewolf_core.core.engine.resolver import ActionResolver, NightResolveResult
 from ai_werewolf_core.core.engine.roles.base import BaseRole
+from ai_werewolf_core.core.engine.roles import create_role
+from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
+from ai_werewolf_core.schemas.enums import Role
 from ai_werewolf_core.core.engine.special_action_resolver import (
     SpecialActionResult,
     SpecialActionResolver,
@@ -200,6 +207,85 @@ class GameEngine:
         )
 
     # ==================================================================
+    # 阶段定时器调度
+    # ==================================================================
+
+    async def schedule_phase_timer(self, phase: GamePhase) -> None:
+        """为指定阶段调度 Celery 延迟任务。
+
+        在成功进入新阶段后调用，根据阶段类型计算停留时长，
+        投递延迟任务并在 Redis 中记录任务句柄。
+
+        Args:
+            phase: 刚进入的阶段（用于计算倒计时和下一步推进）。
+        """
+        duration = LifecycleManager.get_phase_timeout(phase)
+        if duration <= 0:
+            return  # GAME_OVER 等无需倒计时
+
+        from ai_werewolf_core.tasks.game import advance_phase_task
+
+        # 确定阶段结束后应进入的下一个阶段
+        next_phase = self._determine_next_phase(
+            phase,
+            deaths=[],        # Celery 定时器不处理结算
+            game_over=False,
+            vote_result=None,
+        )
+
+        # 投递延迟任务，countdown=该阶段的停留时长
+        task = advance_phase_task.apply_async(
+            args=[self.game_id],
+            kwargs={"expected_phase": phase.value},
+            countdown=duration,
+        )
+        task_id = task.id
+        await self.lifecycle.save_task_id(task_id)
+
+        self._logger.info(
+            "phase_timer_scheduled",
+            phase=phase.value,
+            next_phase=next_phase.value if next_phase else None,
+            duration=duration,
+            task_id=task_id,
+        )
+
+    # ==================================================================
+    # 加载持久化状态（用于 Celery Worker 恢复 GameEngine）
+    # ==================================================================
+
+    @staticmethod
+    async def load_roles_from_persistence(
+        game_id: str,
+    ) -> dict[str, BaseRole]:
+        """从 Redis 加载角色数据并重建 BaseRole 实例。
+
+        用于 Celery Worker 中重建 GameEngine。
+
+        Args:
+            game_id: 对局唯一标识。
+
+        Returns:
+            ``player_id → BaseRole`` 角色映射。
+        """
+        from ai_werewolf_core.core.engine.roles import create_role
+
+        mgr = PlayerStatusManager()
+        players = await mgr.get_all_players(game_id)
+
+        roles: dict[str, BaseRole] = {}
+        for pid, info in players.items():
+            role_type = Role(info["role"])
+            seat = info["seat"]
+            role = create_role(role_type, pid)
+            # 检查存活状态
+            is_alive = await mgr.is_alive(game_id, seat)
+            if not is_alive:
+                role.die()
+            roles[pid] = role
+        return roles
+
+    # ==================================================================
     # 公开接口: 对局生命周期
     # ==================================================================
 
@@ -334,7 +420,66 @@ class GameEngine:
         except ActionValidationError as e:
             return SubmitResult.rejected_result(str(e), retry=False)
 
+        # ── Step 3: 检查是否满足提前结束条件 ──
+        try:
+            await self._check_early_termination(current_phase)
+        except Exception as e:
+            # 提前结束失败不影响动作提交本身
+            self._logger.warning(
+                "early_termination_check_failed",
+                phase=current_phase.value,
+                error=str(e),
+            )
+
         return SubmitResult.accepted_result()
+
+    # ==================================================================
+    # 提前结束检测
+    # ==================================================================
+
+    async def _check_early_termination(self, current_phase: GamePhase) -> None:
+        """检查当前阶段是否满足提前结束条件。
+
+        当阶段所需的所有动作已收集完毕时，取消定时任务并立即推进阶段。
+
+        Args:
+            current_phase: 当前游戏阶段。
+        """
+        is_completed = False
+
+        if current_phase in NIGHT_ACT_PHASES:
+            is_completed = self.resolver.is_action_completed(self.roles, current_phase)
+        elif current_phase in VOTE_PHASES:
+            is_completed = await self.vote_manager.is_action_completed(self.roles)
+
+        if not is_completed:
+            return
+
+        # 所有动作已收集完毕 → 取消定时器并立即推进
+        self._logger.info(
+            "early_termination_triggered",
+            phase=current_phase.value,
+        )
+
+        # 取消 Celery 延迟任务
+        try:
+            task_id = await self.lifecycle.get_task_id()
+            if task_id:
+                from celery.app.control import Control
+                from ai_werewolf_core.worker import celery_app
+
+                control = Control(celery_app)
+                control.revoke(task_id, terminate=False)
+                await self.lifecycle.clear_task_id()
+                self._logger.info("timer_revoked", task_id=task_id)
+        except Exception as e:
+            self._logger.warning(
+                "timer_revoke_failed",
+                error=str(e),
+            )
+
+        # 立即推进阶段
+        await self.advance_phase()
 
     # ==================================================================
     # 公开接口: 阶段推进（Engine 内部自驱 or 外部触发）
@@ -407,7 +552,11 @@ class GameEngine:
 
         await self.lifecycle.advance_phase(next_phase)
 
-        # ── Step 4: 如果游戏结束，调用 end_game ──
+        # ── Step 4: 调度阶段定时器（后台自动推进） ──
+        if next_phase != GamePhase.GAME_OVER:
+            await self.schedule_phase_timer(next_phase)
+
+        # ── Step 5: 如果游戏结束，调用 end_game ──
         if next_phase == GamePhase.GAME_OVER:
             await self.lifecycle.end_game(winner or "UNKNOWN")
 
