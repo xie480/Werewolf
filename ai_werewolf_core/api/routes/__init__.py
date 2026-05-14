@@ -4,5 +4,6 @@ from .players import router as players_router
 from .actions import router as actions_router
 from .events import router as events_router
 from .models import router as models_router
+from .memory_compression import router as memory_compression_router
 
-__all__ = ["games_router", "players_router", "actions_router", "events_router", "models_router"]
+__all__ = ["games_router", "players_router", "actions_router", "events_router", "models_router", "memory_compression_router"]

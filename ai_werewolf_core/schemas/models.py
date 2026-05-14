@@ -38,6 +38,9 @@ class Player(BaseModel):
     is_alive: bool = True
     """存活状态。引擎在结算死亡后更新此字段。"""
 
+    ai_profile_id: Optional[str] = None
+    """关联的 AI 玩家档案 ID（可为空）"""
+
     class Config:
         use_enum_values = True
 
@@ -214,3 +217,14 @@ class AdapterResponse(BaseModel):
     error_message: Optional[str] = None
     retry_count: int = 0
     usage: Dict[str, int] = Field(default_factory=dict)
+
+
+class CompressionRequest(BaseModel):
+    """记忆压缩请求"""
+    game_id: str
+    model_id: str = Field(default="default-openai", description="用于压缩的模型ID")
+
+
+class CompressionResponse(BaseModel):
+    """记忆压缩响应"""
+    summary: str = Field(..., description="压缩后的摘要文本")

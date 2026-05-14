@@ -39,3 +39,8 @@ class ModelRegistry:
     @classmethod
     def list_models(cls) -> list[str]:
         return list(cls._registry.keys())
+
+    @classmethod
+    async def reload(cls) -> None:
+        """重新加载模型配置"""
+        await cls.init()

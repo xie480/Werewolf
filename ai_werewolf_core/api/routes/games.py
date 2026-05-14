@@ -80,27 +80,73 @@ def _assign_roles(player_count: int) -> list[Role]:
     return roles
 
 
-def _build_players_dict(player_count: int) -> dict[str, dict]:
-    """构建玩家字典——分配角色和座位。
+async def _build_players_dict(request: CreateGameRequest) -> dict[str, dict]:
+    """构建玩家字典——分配角色和座位，并处理 AI 玩家配置。
 
     Args:
-        player_count: 玩家人数。
+        request: 创建对局请求。
 
     Returns:
-        ``player_id → player_info`` 映射，player_info 包含 role、seat、faction。
+        ``player_id → player_info`` 映射，player_info 包含 role、seat、faction、ai_profile_id、model_id。
     """
     from ai_werewolf_core.schemas.enums import Faction
+    from ai_werewolf_core.db.models import AIPlayerProfile
+    from ai_werewolf_core.db.session import async_session_factory
+    from sqlalchemy import select
 
-    roles = _assign_roles(player_count)
+    player_count = request.player_count
+    
+    # 检查是否提供了自定义角色设置
+    if request.role_setup and len(request.role_setup) == player_count:
+        roles = [Role(r) for r in request.role_setup]
+    else:
+        # 使用默认角色分配
+        roles = _assign_roles(player_count)
+        
     players: dict[str, dict] = {}
+    
+    # 创建玩家配置映射
+    profile_map = {}
+    if request.players:
+        # 获取现有AI玩家配置ID
+        profile_ids = [p.player_id for p in request.players if p.type == 'existing' and p.player_id]
+        if profile_ids:
+            async with async_session_factory() as session:
+                # 查询数据库中的AI玩家配置
+                stmt = select(AIPlayerProfile).where(AIPlayerProfile.id.in_(profile_ids))
+                result = await session.execute(stmt)
+                for profile in result.scalars():
+                    # 将查询结果缓存到映射中
+                    profile_map[profile.id] = profile
 
+    # 为每个座位分配玩家信息
     for seat, role in enumerate(roles, start=1):
         player_id = f"player_{seat}"
+        # 根据角色确定阵营
         faction = Faction.WEREWOLF.value if role == Role.WEREWOLF else Faction.VILLAGER.value
+        
+        ai_profile_id = None
+        model_id = "default_model"
+        
+        # 处理玩家设置
+        if request.players and seat - 1 < len(request.players):
+            p_setup = request.players[seat - 1]
+            if p_setup.type == 'existing' and p_setup.player_id:
+                # 使用现有AI玩家配置
+                ai_profile_id = p_setup.player_id
+                if ai_profile_id in profile_map:
+                    model_id = profile_map[ai_profile_id].model_name
+            elif p_setup.type == 'dynamic' and p_setup.config:
+                # 使用动态配置
+                model_id = p_setup.config.get("model_name", "default_model")
+                
+        # 将玩家信息添加到字典中
         players[player_id] = {
             "role": role.value,
             "seat": seat,
             "faction": faction,
+            "ai_profile_id": ai_profile_id,
+            "model_id": model_id,
         }
 
     logger.info(
@@ -142,7 +188,7 @@ async def create_game(request: CreateGameRequest = CreateGameRequest()) -> Creat
 
         # 分配角色并初始化玩家到 Redis + DB
         player_count = request.player_count
-        players = _build_players_dict(player_count)
+        players = await _build_players_dict(request)
         player_mgr = PlayerStatusManager()
         await player_mgr.init_players(game_id, players)
 

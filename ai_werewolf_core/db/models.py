@@ -80,6 +80,12 @@ class PlayerRecord(Base):
     player_id: Mapped[str] = mapped_column(
         String(32), comment="玩家标识，如 player_1"
     )
+    ai_profile_id: Mapped[str | None] = mapped_column(
+        String(19),
+        ForeignKey("ai_player_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="关联的 AI 玩家档案 ID",
+    )
     seat_number: Mapped[int] = mapped_column(Integer, comment="座位号")
     role: Mapped[Role] = mapped_column(SQLEnum(Role), comment="玩家身份")
     is_alive: Mapped[bool] = mapped_column(Boolean, default=True, comment="是否存活")
@@ -93,6 +99,7 @@ class PlayerRecord(Base):
 
     # 关联
     game: Mapped["GameRecord"] = relationship("GameRecord", back_populates="players")
+    ai_profile: Mapped["AIPlayerProfile"] = relationship("AIPlayerProfile")
 
 
 class EventRecord(Base):
@@ -175,3 +182,38 @@ class ModelConfig(Base):
             "max_tokens": self.max_tokens,
             "timeout": self.timeout,
         }
+
+class AIPlayerProfile(Base):
+    """AI 玩家档案表 —— 记录 AI 玩家的固有属性和配置。"""
+
+    __tablename__ = "ai_player_profiles"
+
+    id: Mapped[str] = mapped_column(String(19), primary_key=True, comment="雪花算法全局唯一ID")
+    name: Mapped[str] = mapped_column(String(64), index=True, comment="玩家显示名称")
+    avatar_url: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="玩家头像URL")
+    model_provider: Mapped[str] = mapped_column(String(32), comment="模型提供商")
+    model_name: Mapped[str] = mapped_column(String(64), comment="具体模型版本")
+    system_prompt: Mapped[str | None] = mapped_column(String, nullable=True, comment="特定性格或行为准则 Prompt")
+    temperature: Mapped[float] = mapped_column(Float, default=0.7, comment="模型生成温度参数")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, comment="是否在玩家库中激活可用")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    stats: Mapped["AIPlayerStats"] = relationship("AIPlayerStats", back_populates="profile", uselist=False, cascade="all, delete-orphan")
+
+class AIPlayerStats(Base):
+    """玩家统计数据表 —— 精确记录并持久化玩家的核心行为数据。"""
+
+    __tablename__ = "ai_player_stats"
+
+    player_id: Mapped[str] = mapped_column(String(19), ForeignKey("ai_player_profiles.id", ondelete="CASCADE"), primary_key=True, comment="关联 ai_player_profiles.id")
+    total_games: Mapped[int] = mapped_column(Integer, default=0, comment="参与的总对局数")
+    wins: Mapped[int] = mapped_column(Integer, default=0, comment="获胜局数")
+    losses: Mapped[int] = mapped_column(Integer, default=0, comment="失败局数")
+    response_failures: Mapped[int] = mapped_column(Integer, default=0, comment="模型调用失败/超时/格式错误的累计次数")
+    total_actions: Mapped[int] = mapped_column(Integer, default=0, comment="累计成功执行的行动次数")
+    total_action_time_ms: Mapped[int] = mapped_column(Integer, default=0, comment="累计行动耗时（毫秒）")
+    role_stats: Mapped[dict] = mapped_column(JSONB, default=dict, comment="按角色统计的胜负数据")
+    last_played_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, comment="最后一次参与对局的时间")
+
+    profile: Mapped["AIPlayerProfile"] = relationship("AIPlayerProfile", back_populates="stats")

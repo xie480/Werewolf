@@ -29,7 +29,11 @@ def test_route_after_validation():
 @patch("ai_werewolf_core.agents.memory.public.PublicMemoryManager")
 @patch("ai_werewolf_core.agents.memory.private.PrivateMemoryManager")
 @patch("ai_werewolf_core.core.action.validator.ActionValidator.validate_basic")
-async def test_run_agent_workflow_success(mock_validate_basic, mock_private_mgr_class, mock_public_mgr_class, mock_adapter_factory):
+@patch("ai_werewolf_core.core.engine.player_manager.PlayerStatusManager")
+async def test_run_agent_workflow_success(mock_player_mgr_class, mock_validate_basic, mock_private_mgr_class, mock_public_mgr_class, mock_adapter_factory):
+    mock_player_mgr = mock_player_mgr_class.return_value
+    mock_player_mgr.get_player_info = AsyncMock(return_value={"model_id": "test_model"})
+
     mock_validate_basic.return_value = ValidationResult.passed()
     
     mock_public_mgr = mock_public_mgr_class.return_value
@@ -85,7 +89,11 @@ async def test_run_agent_workflow_success(mock_validate_basic, mock_private_mgr_
 @patch("ai_werewolf_core.agents.memory.public.PublicMemoryManager")
 @patch("ai_werewolf_core.agents.memory.private.PrivateMemoryManager")
 @patch("ai_werewolf_core.core.action.validator.ActionValidator.validate_basic")
-async def test_run_agent_workflow_fallback(mock_validate_basic, mock_private_mgr_class, mock_public_mgr_class, mock_adapter_factory):
+@patch("ai_werewolf_core.core.engine.player_manager.PlayerStatusManager")
+async def test_run_agent_workflow_fallback(mock_player_mgr_class, mock_validate_basic, mock_private_mgr_class, mock_public_mgr_class, mock_adapter_factory):
+    mock_player_mgr = mock_player_mgr_class.return_value
+    mock_player_mgr.get_player_info = AsyncMock(return_value={"model_id": "test_model"})
+
     # Always fail validation to trigger fallback
     mock_validate_basic.return_value = ValidationResult.rejected("Always fail", "business")
     

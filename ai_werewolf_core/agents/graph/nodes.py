@@ -143,8 +143,12 @@ async def reasoning_node(state: AgentState) -> Dict[str, Any]:
             full_prompt += f"\n\n【系统警告】你上一次的输出存在以下错误，请务必修正：\n{validation_errors[-1]}"
             
         # 调用大模型
-        # TODO: 从配置或玩家属性中获取 model_id
-        model_id = "default_model"
+        # 从 Redis 获取玩家的 model_id（默认 fallback 为 "default_model"）
+        from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
+        
+        player_mgr = PlayerStatusManager()
+        player_info = await player_mgr.get_player_info(game_id, player_id)
+        model_id = player_info.get("model_id", "default_model") if player_info else "default_model"
         adapter = AdapterFactory.get_adapter(model_id)
         
         # 定义期望的响应模型

@@ -5,6 +5,14 @@
 确保测试中的日志（包括 EventBus 的 `_default_log_subscriber`）能正常输出。
 """
 
+import sys
+from pathlib import Path
+
+# Ensure project root is in sys.path before importing ai_werewolf_core
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 import pytest
 import pytest_asyncio
 from ai_werewolf_core.utils.logger import setup_logger

@@ -77,6 +77,7 @@ class MemoryPruner:
         Returns:
             压缩后的摘要文本
         """
-        # TODO: 接入 LangChain 或直接调用 OpenAI API 进行摘要
-        logger.warning("compress_events 尚未实现 LLM 压缩，返回简单拼接")
-        return "\n".join([e.description for e in events])
+        from ai_werewolf_core.agents.memory.compression import MemoryCompressionService
+        
+        logger.info(f"开始使用 LLM 压缩 {len(events)} 条事件")
+        return await MemoryCompressionService.compress(events, game_id="unknown") # TODO: 传递真实的 game_id

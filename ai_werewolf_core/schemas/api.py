@@ -19,10 +19,15 @@ from pydantic import BaseModel, Field
 # ============================================================================
 
 
+class PlayerSetupConfig(BaseModel):
+    type: str = Field(..., description="'existing' 或 'dynamic'")
+    player_id: Optional[str] = Field(default=None, description="现有 AI 玩家的 ID")
+    config: Optional[dict] = Field(default=None, description="动态创建时的配置 (如 model_name, temperature)")
+
 class CreateGameRequest(BaseModel):
     """创建对局请求。
 
-    仅需指定玩家人数，Engine 自动分配角色和座位。
+    支持指定玩家人数、角色配置以及 AI 玩家配置。
     """
 
     player_count: int = Field(
@@ -31,6 +36,8 @@ class CreateGameRequest(BaseModel):
         le=12,
         description="玩家人数，范围 6-12",
     )
+    role_setup: Optional[List[str]] = Field(default=None, description="角色配置列表")
+    players: Optional[List[PlayerSetupConfig]] = Field(default=None, description="玩家配置列表")
 
 
 class CreateGameResponse(BaseModel):

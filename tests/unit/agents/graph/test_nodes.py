@@ -41,7 +41,11 @@ async def test_memory_node(mock_private_mgr_class, mock_public_mgr_class):
 @pytest.mark.asyncio
 @patch("ai_werewolf_core.agents.adapter.factory.AdapterFactory")
 @patch("ai_werewolf_core.agents.memory.private.PrivateMemoryManager")
-async def test_reasoning_node(mock_private_mgr_class, mock_adapter_factory):
+@patch("ai_werewolf_core.core.engine.player_manager.PlayerStatusManager")
+async def test_reasoning_node(mock_player_mgr_class, mock_private_mgr_class, mock_adapter_factory):
+    mock_player_mgr = mock_player_mgr_class.return_value
+    mock_player_mgr.get_player_info = AsyncMock(return_value={"model_id": "test_model"})
+
     mock_adapter = MagicMock()
     mock_adapter_factory.get_adapter.return_value = mock_adapter
     

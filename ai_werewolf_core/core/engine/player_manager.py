@@ -219,6 +219,7 @@ class PlayerStatusManager:
                         seat_number=info["seat"],
                         role=role,
                         is_alive=True,
+                        ai_profile_id=info.get("ai_profile_id"),
                     )
                     session.add(record)
 
@@ -648,20 +649,39 @@ class PlayerStatusManager:
             玩家信息字典或 None。
         """
         try:
+            # 创建数据库会话
             async with async_session_factory() as session:
                 from sqlalchemy import select
+                from ai_werewolf_core.db.models import AIPlayerProfile
+                
+                # 构建查询语句，查找指定游戏和玩家的记录
                 stmt = select(PlayerRecord).where(
                     PlayerRecord.game_id == game_id,
                     PlayerRecord.player_id == player_id,
                 )
                 result = await session.execute(stmt)
                 record = result.scalar_one_or_none()
+                # 如果没有找到记录则返回 None
                 if record is None:
                     return None
+                    
+                # 默认模型 ID
+                model_id = "default_model"
+                # 如果玩家有 AI 配置 ID，则查询对应的模型名称
+                if record.ai_profile_id:
+                    stmt2 = select(AIPlayerProfile.model_name).where(AIPlayerProfile.id == record.ai_profile_id)
+                    res2 = await session.execute(stmt2)
+                    model_name = res2.scalar_one_or_none()
+                    if model_name:
+                        model_id = model_name
+                        
+                # 返回包含玩家详细信息的字典
                 return {
                     "role": record.role.value if record.role else "UNKNOWN",
                     "seat": record.seat_number,
                     "faction": _infer_faction(record.role),
+                    "ai_profile_id": record.ai_profile_id,
+                    "model_id": model_id,
                 }
         except Exception as e:
             logger.error(

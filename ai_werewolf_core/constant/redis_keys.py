@@ -39,6 +39,9 @@ class RedisKeys:
     PRIVATE_MEMORY_PREFIX: str = "werewolf:memory:private"
     """Agent 私有记忆 Hash Key 前缀。完整格式: werewolf:memory:private:{game_id}:{player_id}"""
 
+    COMPRESSED_MEMORY_SUMMARY_PREFIX: str = "werewolf:memory:compressed_summary"
+    """压缩记忆摘要 Key 前缀。完整格式: werewolf:memory:compressed_summary:{game_id}"""
+
     # ------------------------------------------------------------------
     # Key 构建静态方法
     # ------------------------------------------------------------------
@@ -130,3 +133,11 @@ class RedisKeys:
         内容结构: Field 为 target_player_id, Value 为嫌疑度 (float 字符串)
         """
         return f"{RedisKeys.PRIVATE_MEMORY_PREFIX}:{game_id}:{player_id}:suspect_list"
+
+    @staticmethod
+    def compressed_memory_summary(game_id: str) -> str:
+        """构建压缩记忆摘要 Key: werewolf:memory:compressed_summary:{game_id}
+        存储结构: String
+        内容结构: 压缩后的摘要文本
+        """
+        return f"{RedisKeys.COMPRESSED_MEMORY_SUMMARY_PREFIX}:{game_id}"

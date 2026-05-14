@@ -60,13 +60,13 @@ def test_game_tasks_registered():
 
 def test_agent_tasks_registered():
     """Test that agent inference tasks are registered (placeholder)."""
-    import ai_werewolf_core.tasks.agent  # noqa: F401
+    import ai_werewolf_core.tasks.agent_tasks  # noqa: F401
 
     from ai_werewolf_core.worker import celery_app
 
     task_names = celery_app.tasks.keys()
-    assert "tasks.agent.agent_infer" in task_names
-    assert "tasks.agent.batch_infer" in task_names
+    assert "agents.run_agent_decision" in task_names
+    assert "agents.submit_action" in task_names
 
 
 def test_eval_tasks_registered():
