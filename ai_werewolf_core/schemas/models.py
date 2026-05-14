@@ -84,6 +84,7 @@ class PublicEventLog(BaseModel):
 class PrivateEventLog(BaseModel):
     """单条私有事件日志"""
     seq_num: int = Field(..., description="全局事件序号，保证严格时序")
+    round_num: int = Field(default=1, description="轮次编号")
     phase: GamePhase = Field(..., description="事件发生的游戏阶段")
     description: str = Field(..., description="自然语言描述，如'昨晚你查验了3号，他是狼人'")
 
@@ -94,16 +95,21 @@ class PrivateState(BaseModel):
     faction: Faction = Field(..., description="所属阵营")
     teammates: List[str] = Field(default_factory=list, description="已知队友ID列表（如狼人队友）")
     skill_status: Dict[str, Any] = Field(default_factory=dict, description="技能状态（如女巫解药是否可用）")
-    system_feedbacks: List[PrivateEventLog] = Field(default_factory=list, description="系统私密反馈（如昨晚验人结果）")
 
+
+class RoundMemory(BaseModel):
+    """单轮记忆 - 包含该轮的公共事件、私有事实和推理"""
+    round_num: int = Field(..., description="轮次编号")
+    public_events: List[PublicEventLog] = Field(default_factory=list, description="本轮公共事件")
+    private_facts: List[PrivateEventLog] = Field(default_factory=list, description="本轮私有事实")
+    reasoning: List[str] = Field(default_factory=list, description="本轮推理摘要")
 
 class MemorySnapshot(BaseModel):
     """传递给 LangGraph 的完整记忆快照"""
     agent_id: str
     game_id: str
-    public_timeline: List[PublicEventLog] = Field(..., description="裁剪后的公共时间线")
     private_state: PrivateState = Field(..., description="当前私有状态")
-    historical_reasoning: List[str] = Field(default_factory=list, description="历史内心OS摘要")
+    history: List[RoundMemory] = Field(..., description="记忆轮次列表，按轮次顺序")
     experiences: List[str] = Field(default_factory=list, description="从 RAG 检索到的历史经验")
     last_suspect_list: Dict[str, float] = Field(default_factory=dict, description="上一次的嫌疑人列表")
 

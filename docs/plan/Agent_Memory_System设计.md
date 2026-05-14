@@ -32,6 +32,7 @@ class PublicEventLog(BaseModel):
 class PrivateEventLog(BaseModel):
     """单条私有事件日志"""
     seq_num: int = Field(..., description="全局事件序号，保证严格时序")
+    round_num: int = Field(default=1, description="轮次编号")
     phase: GamePhase = Field(..., description="事件发生的游戏阶段")
     description: str = Field(..., description="自然语言描述，如'昨晚你查验了3号，他是狼人'")
 
@@ -41,15 +42,20 @@ class PrivateState(BaseModel):
     faction: Faction = Field(..., description="所属阵营")
     teammates: List[str] = Field(default_factory=list, description="已知队友ID列表（如狼人队友）")
     skill_status: Dict[str, Any] = Field(default_factory=dict, description="技能状态（如女巫解药是否可用）")
-    system_feedbacks: List[PrivateEventLog] = Field(default_factory=list, description="系统私密反馈（如昨晚验人结果）")
+
+class RoundMemory(BaseModel):
+    """单轮记忆 - 包含该轮的公共事件、私有事实和推理"""
+    round_num: int = Field(..., description="轮次编号")
+    public_events: List[PublicEventLog] = Field(default_factory=list, description="本轮公共事件")
+    private_facts: List[PrivateEventLog] = Field(default_factory=list, description="本轮私有事实")
+    reasoning: List[str] = Field(default_factory=list, description="本轮推理摘要")
 
 class MemorySnapshot(BaseModel):
     """传递给 LangGraph 的完整记忆快照"""
     agent_id: str
     game_id: str
-    public_timeline: List[PublicEventLog] = Field(..., description="裁剪后的公共时间线")
     private_state: PrivateState = Field(..., description="当前私有状态")
-    historical_reasoning: List[str] = Field(default_factory=list, description="历史内心OS摘要")
+    history: List[RoundMemory] = Field(..., description="记忆轮次列表，按轮次顺序")
 ```
 
 ---
@@ -72,29 +78,39 @@ class PublicMemoryManager:
         self.db = db_session
         self.event_bus = EventBus(redis_client, db_session)
 
-    async def fetch_timeline(self, game_id: str, max_events: int = 50) -> List[PublicEventLog]:
+    async def fetch_round_memories(self, game_id: str, max_events: int = 50) -> List[RoundMemory]:
         """
-        获取公共时间线。
+        获取按轮次聚合的公共记忆。
         优先从 Redis Stream (werewolf:events:{game_id}) 读取热数据。
         如果 Redis 缺失或被裁剪，降级查询 PostgreSQL EventRecord 表。
         """
         raw_events = await self.event_bus.get_recent_events(game_id, limit=max_events)
         
-        timeline = []
+        round_dict = {}
         for event in raw_events:
             # 过滤掉非 PUBLIC 可见性的事件
             if event.visibility != Visibility.PUBLIC:
                 continue
                 
+            # 仅保留关键事实：发言、投票、死亡
+            if event.event_type not in (EventType.SPEECH_EVENT, EventType.VOTE_EVENT, EventType.PLAYER_DEATH):
+                continue
+                
             # 将结构化 Event 转换为自然语言描述
             desc = self._format_event_to_nl(event)
-            timeline.append(PublicEventLog(
+            round_num = event.payload.get("round", 1)
+            
+            if round_num not in round_dict:
+                round_dict[round_num] = []
+                
+            round_dict[round_num].append(PublicEventLog(
                 seq_num=event.seq_num,
                 phase=event.phase,
                 description=desc
             ))
             
-        return sorted(timeline, key=lambda x: x.seq_num)
+        # 组装为 RoundMemory 列表
+        return [RoundMemory(round_num=r, public_events=events) for r, events in round_dict.items()]
         
     def _format_event_to_nl(self, event: Event) -> str:
         # 根据 EventType 格式化，例如：
@@ -127,8 +143,12 @@ class PrivateMemoryManager:
         """
         pass
         
-    async def save_reasoning(self, game_id: str, player_id: str, reasoning: str):
+    async def save_reasoning(self, game_id: str, player_id: str, round_num: int, reasoning: str):
         """保存 Agent 的内心 OS，用于后续回合的连贯性。使用 RPUSH 追加到 List。"""
+        pass
+        
+    async def get_private_round_data(self, game_id: str, player_id: str) -> dict[int, dict]:
+        """获取按轮次聚合的私有事实和推理。"""
         pass
 ```
 

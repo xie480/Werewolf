@@ -53,21 +53,40 @@ async def memory_node(state: AgentState) -> Dict[str, Any]:
         public_mgr = PublicMemoryManager()
         private_mgr = PrivateMemoryManager()
         
-        # 获取公共时间线
-        public_timeline = await public_mgr.fetch_timeline(game_id)
+        # 获取按轮次聚合的公共记忆
+        round_memories = await public_mgr.fetch_round_memories(game_id)
         # 获取玩家私有状态
         private_state = await private_mgr.get_private_state(game_id, player_id, player_id)
-        # 获取玩家历史内心 OS。
-        historical_reasoning = await private_mgr.get_historical_reasoning(game_id, player_id)
+        # 获取玩家私有轮次数据
+        private_round_data = await private_mgr.get_private_round_data(game_id, player_id)
         # 获取玩家最近一次的嫌疑人列表
         last_suspect_list = await private_mgr.get_last_suspect_list(game_id, player_id)
+        
+        # 合并公共和私有轮次数据
+        for rm in round_memories:
+            r_num = rm.round_num
+            if r_num in private_round_data:
+                rm.private_facts = private_round_data[r_num].get("private_facts", [])
+                rm.reasoning = private_round_data[r_num].get("reasoning", [])
+                
+        # 处理可能只有私有数据没有公共数据的轮次
+        existing_rounds = {rm.round_num for rm in round_memories}
+        for r_num, p_data in private_round_data.items():
+            if r_num not in existing_rounds:
+                from ai_werewolf_core.schemas.models import RoundMemory
+                round_memories.append(RoundMemory(
+                    round_num=r_num,
+                    public_events=[],
+                    private_facts=p_data.get("private_facts", []),
+                    reasoning=p_data.get("reasoning", [])
+                ))
+        round_memories.sort(key=lambda x: x.round_num)
         
         snapshot_obj = MemorySnapshot(
             agent_id=player_id,
             game_id=game_id,
-            public_timeline=public_timeline,
             private_state=private_state,
-            historical_reasoning=historical_reasoning,
+            history=round_memories,
             experiences=[],
             last_suspect_list=last_suspect_list
         )
@@ -170,7 +189,7 @@ async def reasoning_node(state: AgentState) -> Dict[str, Any]:
             # 保存内心 OS 和嫌疑人列表
             from ai_werewolf_core.agents.memory.private import PrivateMemoryManager
             private_mgr = PrivateMemoryManager()
-            await private_mgr.save_reasoning(game_id, player_id, parsed_data.internal_monologue)
+            await private_mgr.save_reasoning(game_id, player_id, current_round, parsed_data.internal_monologue)
             if parsed_data.suspect_list:
                 await private_mgr.save_suspect_list(game_id, player_id, parsed_data.suspect_list)
                 

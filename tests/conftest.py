@@ -16,4 +16,8 @@ setup_logger()
 @pytest_asyncio.fixture(autouse=True, scope="session")
 async def load_lua_scripts():
     """在所有测试开始前加载 Lua 脚本。"""
-    await LuaScriptManager.load_all_scripts()
+    try:
+        await LuaScriptManager.load_all_scripts()
+    except Exception as e:
+        import logging
+        logging.warning(f"Failed to load lua scripts (Redis might not be running): {e}")

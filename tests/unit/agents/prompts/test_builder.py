@@ -9,30 +9,37 @@ def prompt_builder():
 
 @pytest.fixture
 def sample_snapshot():
+    from ai_werewolf_core.schemas.models import RoundMemory
     return MemorySnapshot(
         agent_id="player_1",
         game_id="game_123",
-        public_timeline=[
-            PublicEventLog(
-                seq_num=1,
-                phase=GamePhase.DAY_START,
-                description="天亮了，昨晚平安夜。"
+        history=[
+            RoundMemory(
+                round_num=1,
+                public_events=[
+                    PublicEventLog(
+                        seq_num=1,
+                        phase=GamePhase.DAY_START,
+                        description="天亮了，昨晚平安夜。"
+                    )
+                ],
+                private_facts=[
+                    PrivateEventLog(
+                        seq_num=2,
+                        round_num=1,
+                        phase=GamePhase.NIGHT_WOLF_ACT,
+                        description="你和队友决定击杀 player_3。"
+                    )
+                ],
+                reasoning=["我觉得 player_3 是预言家，必须杀掉。"]
             )
         ],
         private_state=PrivateState(
             role=Role.WEREWOLF,
             faction=Faction.WEREWOLF,
             teammates=["player_2"],
-            skill_status={},
-            system_feedbacks=[
-                PrivateEventLog(
-                    seq_num=2,
-                    phase=GamePhase.NIGHT_WOLF_ACT,
-                    description="你和队友决定击杀 player_3。"
-                )
-            ]
+            skill_status={}
         ),
-        historical_reasoning=["我觉得 player_3 是预言家，必须杀掉。"],
         experiences=["上次悍跳预言家时，发言不够自信被识破，这次要注意语气。"]
     )
 
@@ -98,7 +105,7 @@ def test_build_prompt_hunter(prompt_builder, sample_snapshot):
     assert "你的底牌是：猎人" in prompt
 
 def test_build_prompt_empty_timeline(prompt_builder, sample_snapshot):
-    sample_snapshot.public_timeline = []
+    sample_snapshot.history = []
     prompt = prompt_builder.build_prompt(sample_snapshot)
     
     assert "当前游戏阶段（INIT）" in prompt

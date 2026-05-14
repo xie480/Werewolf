@@ -1,19 +1,26 @@
-【绝对事实：系统反馈】
-（注意：以下信息是系统的绝对事实，你的任何推理都不能违背以下信息）
-{% for feedback in system_feedbacks %}
-- [{{ feedback.phase.value }}] {{ feedback.description }}
-{% endfor %}
-
-【公共事件日志】
-以下是游戏开始至今的公共事件记录：
-{% for event in public_timeline %}
+【游戏记忆与历史】
+以下是按轮次整理的游戏历史，包含公共事件、你收到的私有事实（绝对真实）以及你当时的推理：
+{% for round_mem in history %}
+### 第 {{ round_mem.round_num }} 轮 ###
+{% if round_mem.public_events %}
+[公共事件]
+{% for event in round_mem.public_events %}
 - [{{ event.phase.value }}] {{ event.description }}
 {% endfor %}
+{% endif %}
+{% if round_mem.private_facts %}
+[私有事实] (绝对真实，不可违背)
+{% for fact in round_mem.private_facts %}
+- [{{ fact.phase.value }}] {{ fact.description }}
+{% endfor %}
+{% endif %}
+{% if round_mem.reasoning %}
+[你的推理]
+{% for r in round_mem.reasoning %}
+- {{ r }}
+{% endfor %}
+{% endif %}
 
-【你的历史推理】
-以下是你之前的内心OS摘要，供你参考保持逻辑连贯：
-{% for reasoning in historical_reasoning %}
-- {{ reasoning }}
 {% endfor %}
 
 {% if last_suspect_list %}

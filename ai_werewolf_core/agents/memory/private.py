@@ -43,7 +43,6 @@ class PrivateMemoryManager:
             raise SecurityViolationException(f"Agent {request_agent_id} 试图越权读取 {player_id} 的私有记忆")
             
         key = RedisKeys.private_memory(game_id, player_id)
-        feedbacks_key = RedisKeys.private_memory_feedbacks(game_id, player_id)
         redis = await RedisClientManager.get_client()
         
         # 获取对应的PrivateState
@@ -53,9 +52,6 @@ class PrivateMemoryManager:
             
         try:
             state = PrivateState.model_validate_json(raw_data)
-            # 获取私密消息
-            raw_feedbacks = await redis.lrange(feedbacks_key, 0, -1)
-            state.system_feedbacks = [PrivateEventLog.model_validate_json(f) for f in raw_feedbacks]
             return state
         except Exception as e:
             logger.error(
@@ -77,19 +73,15 @@ class PrivateMemoryManager:
         """
         key = RedisKeys.private_memory(game_id, player_id)
         feedbacks_key = RedisKeys.private_memory_feedbacks(game_id, player_id)
+        reasoning_key = RedisKeys.private_memory_reasoning(game_id, player_id)
         redis = await RedisClientManager.get_client()
         
-        # 清理可能存在的旧反馈数据
+        # 清理可能存在的旧反馈数据和推理数据
         await redis.delete(feedbacks_key)
+        await redis.delete(reasoning_key)
         
-        # 保存基础状态（不包含 feedbacks，feedbacks 存在单独的 List 中）
-        state_to_save = state.model_copy()
-        state_to_save.system_feedbacks = []
-        await redis.hset(key, RedisKeys.PRIVATE_MEMORY_STATE_FIELD, state_to_save.model_dump_json())
-        
-        # 如果有初始反馈，写入 List
-        if state.system_feedbacks:
-            await redis.rpush(feedbacks_key, *[f.model_dump_json() for f in state.system_feedbacks])
+        # 保存基础状态
+        await redis.hset(key, RedisKeys.PRIVATE_MEMORY_STATE_FIELD, state.model_dump_json())
             
         logger.debug("私有记忆已初始化", game_id=game_id, player_id=player_id)
 
@@ -113,40 +105,72 @@ class PrivateMemoryManager:
         except Exception as e:
             logger.error("追加系统反馈失败", game_id=game_id, player_id=player_id, error=str(e))
 
-    async def save_reasoning(self, game_id: str, player_id: str, reasoning: str) -> None:
+    async def save_reasoning(self, game_id: str, player_id: str, round_num: int, reasoning: str) -> None:
         """
         保存 Agent 的内心 OS，用于后续回合的连贯性。
         
         Args:
             game_id: 对局 ID
             player_id: 玩家 ID
+            round_num: 轮次编号
             reasoning: 推理内容
         """
         reasoning_key = RedisKeys.private_memory_reasoning(game_id, player_id)
         redis = await RedisClientManager.get_client()
         
-        await redis.rpush(reasoning_key, reasoning)
-        logger.debug("内心OS已保存", game_id=game_id, player_id=player_id)
+        data = json.dumps({"round_num": round_num, "content": reasoning})
+        await redis.rpush(reasoning_key, data)
+        logger.debug("内心OS已保存", game_id=game_id, player_id=player_id, round_num=round_num)
         
-    async def get_historical_reasoning(self, game_id: str, player_id: str, limit: int = 5) -> list[str]:
+    async def get_private_round_data(self, game_id: str, player_id: str) -> dict[int, dict]:
         """
-        获取历史内心 OS。
+        获取按轮次聚合的私有事实和推理。
         
         Args:
             game_id: 对局 ID
             player_id: 玩家 ID
-            limit: 获取最近的几条记录
             
         Returns:
-            历史推理列表
+            按轮次聚合的字典: {round_num: {"private_facts": [PrivateEventLog], "reasoning": [str]}}
         """
+        feedbacks_key = RedisKeys.private_memory_feedbacks(game_id, player_id)
         reasoning_key = RedisKeys.private_memory_reasoning(game_id, player_id)
         redis = await RedisClientManager.get_client()
         
-        # 获取最近的 limit 条记录
-        # LRANGE key -limit -1
-        raw_reasoning = await redis.lrange(reasoning_key, -limit, -1)
-        return [r.decode('utf-8') if isinstance(r, bytes) else r for r in raw_reasoning]
+        raw_feedbacks = await redis.lrange(feedbacks_key, 0, -1)
+        raw_reasoning = await redis.lrange(reasoning_key, 0, -1)
+        
+        round_data = {}
+        
+        for f in raw_feedbacks:
+            try:
+                log = PrivateEventLog.model_validate_json(f)
+                r_num = log.round_num
+                if r_num not in round_data:
+                    round_data[r_num] = {"private_facts": [], "reasoning": []}
+                round_data[r_num]["private_facts"].append(log)
+            except Exception as e:
+                logger.error("解析私有事实失败", error=str(e))
+                
+        for r in raw_reasoning:
+            try:
+                r_str = r.decode('utf-8') if isinstance(r, bytes) else r
+                data = json.loads(r_str)
+                # 兼容旧数据
+                if isinstance(data, dict) and "round_num" in data and "content" in data:
+                    r_num = data["round_num"]
+                    content = data["content"]
+                else:
+                    r_num = 1
+                    content = r_str
+                    
+                if r_num not in round_data:
+                    round_data[r_num] = {"private_facts": [], "reasoning": []}
+                round_data[r_num]["reasoning"].append(content)
+            except Exception as e:
+                logger.error("解析推理记录失败", error=str(e))
+                
+        return round_data
 
     async def save_suspect_list(self, game_id: str, player_id: str, suspect_list: dict[str, float]) -> None:
         """

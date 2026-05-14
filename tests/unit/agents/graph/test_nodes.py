@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from ai_werewolf_core.schemas.enums import GamePhase, ActionType
 from ai_werewolf_core.agents.graph.state import create_initial_state
 from ai_werewolf_core.agents.graph.nodes import (
@@ -12,18 +12,58 @@ from ai_werewolf_core.agents.graph.nodes import (
 from ai_werewolf_core.core.action.validator import ValidationResult
 
 @pytest.mark.asyncio
-async def test_memory_node():
+@patch("ai_werewolf_core.agents.memory.public.PublicMemoryManager")
+@patch("ai_werewolf_core.agents.memory.private.PrivateMemoryManager")
+async def test_memory_node(mock_private_mgr_class, mock_public_mgr_class):
+    mock_public_mgr = mock_public_mgr_class.return_value
+    mock_public_mgr.fetch_round_memories = AsyncMock(return_value=[])
+    
+    mock_private_mgr = mock_private_mgr_class.return_value
+    from ai_werewolf_core.schemas.models import PrivateState
+    from ai_werewolf_core.schemas.enums import Role, Faction
+    mock_private_mgr.get_private_state = AsyncMock(return_value=PrivateState(
+        role=Role.VILLAGER,
+        faction=Faction.VILLAGER,
+        teammates=[],
+        skill_status={}
+    ))
+    mock_private_mgr.get_private_round_data = AsyncMock(return_value={})
+    mock_private_mgr.get_last_suspect_list = AsyncMock(return_value={})
+
     state = create_initial_state("game_1", "player_1", GamePhase.DAY_DISCUSSION, 1)
     result = await memory_node(state)
     
     assert "memory_snapshot" in result
     snapshot = result["memory_snapshot"]
     assert snapshot["game_id"] == "game_1"
-    assert snapshot["player_id"] == "player_1"
-    assert snapshot["phase"] == GamePhase.DAY_DISCUSSION
+    assert snapshot["agent_id"] == "player_1"
 
 @pytest.mark.asyncio
-async def test_reasoning_node():
+@patch("ai_werewolf_core.agents.adapter.factory.AdapterFactory")
+@patch("ai_werewolf_core.agents.memory.private.PrivateMemoryManager")
+async def test_reasoning_node(mock_private_mgr_class, mock_adapter_factory):
+    mock_adapter = MagicMock()
+    mock_adapter_factory.get_adapter.return_value = mock_adapter
+    
+    mock_response = MagicMock()
+    mock_response.is_success = True
+    mock_response.raw_content = "test"
+    
+    mock_parsed_data = MagicMock()
+    mock_parsed_data.action_type = ActionType.PASS.value
+    mock_parsed_data.action_target = None
+    mock_parsed_data.internal_monologue = "test reasoning"
+    mock_parsed_data.confidence = 1.0
+    mock_parsed_data.speech_content = None
+    mock_parsed_data.suspect_list = {}
+    
+    mock_response.parsed_data = mock_parsed_data
+    mock_adapter.agenerate = AsyncMock(return_value=mock_response)
+    
+    mock_private_mgr = mock_private_mgr_class.return_value
+    mock_private_mgr.save_reasoning = AsyncMock()
+    mock_private_mgr.save_suspect_list = AsyncMock()
+
     state = create_initial_state("game_1", "player_1", GamePhase.DAY_DISCUSSION, 1)
     result = await reasoning_node(state)
     

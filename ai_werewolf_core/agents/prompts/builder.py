@@ -45,9 +45,7 @@ class PromptBuilder:
         """
         template = self.env.get_template("context.j2")
         return template.render(
-            system_feedbacks=snapshot.private_state.system_feedbacks,
-            public_timeline=snapshot.public_timeline,
-            historical_reasoning=snapshot.historical_reasoning,
+            history=snapshot.history,
             last_suspect_list=snapshot.last_suspect_list,
             experiences=snapshot.experiences
         )
@@ -64,8 +62,8 @@ class PromptBuilder:
         根据记忆快照，组装完整的 Prompt。
         """
         current_phase = "INIT"
-        if snapshot.public_timeline:
-            current_phase = snapshot.public_timeline[-1].phase.value
+        if snapshot.history and snapshot.history[-1].public_events:
+            current_phase = snapshot.history[-1].public_events[-1].phase.value
 
         system_part = self._render_system(snapshot, current_phase)
         role_part = self._render_role_strategy(snapshot.private_state.role, snapshot, current_phase)

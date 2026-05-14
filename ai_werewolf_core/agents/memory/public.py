@@ -1,9 +1,9 @@
-from typing import List
+from typing import List, Dict
 from ai_werewolf_core.schemas.models import Event
 from ai_werewolf_core.schemas.enums import Visibility, EventType, GamePhase
 from ai_werewolf_core.core.event.bus import event_bus
 from ai_werewolf_core.utils.logger import get_logger
-from ai_werewolf_core.schemas.models import PublicEventLog
+from ai_werewolf_core.schemas.models import PublicEventLog, RoundMemory
 
 logger = get_logger(__name__)
 
@@ -16,9 +16,9 @@ class PublicMemoryManager:
     def __init__(self):
         self.event_bus = event_bus
 
-    async def fetch_timeline(self, game_id: str, start_seq: int = 0, max_events: int = 100) -> List[PublicEventLog]:
+    async def fetch_round_memories(self, game_id: str, start_seq: int = 0, max_events: int = 100) -> List[RoundMemory]:
         """
-        获取公共时间线。
+        获取按轮次聚合的公共记忆。
         
         Args:
             game_id: 对局 ID
@@ -26,19 +26,24 @@ class PublicMemoryManager:
             max_events: 最大获取数量
             
         Returns:
-            公共事件日志列表
+            按轮次聚合的 RoundMemory 列表（仅包含 public_events）
         """
         # 传入一个不存在的 agent_id，这样 get_events 只会返回 PUBLIC 事件
         raw_events = await self.event_bus.get_events(
-            game_id=game_id, 
-            agent_id="__public_only__", 
-            start_seq=start_seq, 
+            game_id=game_id,
+            agent_id="__public_only__",
+            start_seq=start_seq,
             count=max_events
         )
         
-        timeline = []
+        round_dict: Dict[int, List[PublicEventLog]] = {}
+        
         for event in raw_events:
             if event.visibility != Visibility.PUBLIC:
+                continue
+                
+            # 仅保留关键事实：发言、投票、死亡
+            if event.event_type not in (EventType.SPEECH_EVENT, EventType.VOTE_EVENT, EventType.PLAYER_DEATH):
                 continue
                 
             desc = self._format_event_to_nl(event)
@@ -50,13 +55,27 @@ class PublicMemoryManager:
                 except ValueError:
                     phase = GamePhase.INIT
                     
-                timeline.append(PublicEventLog(
+                round_num = event.payload.get("round", 1)
+                
+                if round_num not in round_dict:
+                    round_dict[round_num] = []
+                    
+                round_dict[round_num].append(PublicEventLog(
                     seq_num=event.seq_num,
                     phase=phase,
                     description=desc
                 ))
             
-        return sorted(timeline, key=lambda x: x.seq_num)
+        round_memories = []
+        for round_num in sorted(round_dict.keys()):
+            round_memories.append(RoundMemory(
+                round_num=round_num,
+                public_events=sorted(round_dict[round_num], key=lambda x: x.seq_num),
+                private_facts=[],
+                reasoning=[]
+            ))
+            
+        return round_memories
         
     def _format_event_to_nl(self, event: Event) -> str:
         """将结构化 Event 转换为自然语言描述"""
