@@ -81,3 +81,195 @@ class MemoryCompressionService:
             logger.error("save_compressed_summary_failed", error=str(e), exc_info=True)
             
         return result
+
+    @classmethod
+    async def compress_reasoning(cls, reasoning: List[str], game_id: str, agent_id: str, round_num: int) -> str:
+        """
+        压缩单轮推理记录并存储到 Redis Hash
+        
+        :param reasoning: 推理记录列表，包含多条推理文本
+        :param game_id: 游戏会话ID，用于标识当前游戏
+        :param agent_id: 智能体ID，用于标识执行推理的智能体
+        :param round_num: 当前回合数，作为压缩结果的键值
+        :return: 压缩后的推理文本字符串
+        """
+        # 如果没有推理记录则直接返回空字符串
+        if not reasoning:
+            return ""
+            
+        # 检查Redis中是否已存在该回合的压缩结果，避免重复调用LLM
+        try:
+            redis = await RedisClientManager.get_client()
+            key = RedisKeys.compressed_reasoning(game_id, agent_id)
+            exists = await redis.hexists(key, str(round_num))
+            if exists:
+                logger.info(f"Reasoning for round {round_num} already compressed, skipping LLM call.")
+                return await redis.hget(key, str(round_num))
+        except Exception as e:
+            logger.warning("check_compressed_reasoning_failed", error=str(e))
+
+        # 将推理列表合并为单个文本字符串
+        reasoning_text = "\n".join(reasoning)
+        from ai_werewolf_core.agents.prompts.builder import PromptBuilder
+        builder = PromptBuilder()
+        template = builder.env.get_template("compress_reasoning.j2")
+        full_prompt = template.render(round_num=round_num, reasoning_text=reasoning_text)
+        
+        # 使用适配器模式调用压缩模型进行推理压缩
+        try:
+            adapter = AdapterFactory.get_adapter("compression_model")
+            from pydantic import BaseModel
+            class StringResponse(BaseModel):
+                content: str
+                
+            request = AdapterRequest(
+                model_id="compression_model",
+                agent_id="system_compressor",
+                game_id=game_id,
+                phase=GamePhase.INIT,
+                full_prompt=full_prompt,
+                temperature=0.3,
+                max_tokens=512,
+                response_model=StringResponse
+            )
+            
+            response = await adapter.agenerate(request)
+            
+            # 处理压缩模型响应
+            if response.is_success:
+                result = response.raw_content
+            else:
+                logger.warning("compress_reasoning_llm_failed", error=response.error_message)
+                result = reasoning_text # 回退到原始推理文本
+                
+        except Exception as e:
+            logger.error("compress_reasoning_exception", error=str(e), exc_info=True)
+            result = reasoning_text # 回退到原始推理文本
+            
+        # 将压缩结果保存到Redis中，并设置过期时间（7天）
+        try:
+            redis = await RedisClientManager.get_client()
+            key = RedisKeys.compressed_reasoning(game_id, agent_id)
+            await redis.hset(key, str(round_num), result)
+            await redis.expire(key, 7 * 24 * 3600)
+        except Exception as e:
+            logger.error("save_compressed_reasoning_failed", error=str(e), exc_info=True)
+            
+        return result
+
+    @classmethod
+    async def merge_global_summary(cls, current_summary: str, new_info: str, game_id: str, agent_id: str, round_num: int) -> str:
+        """
+        将新一轮的信息融入全局摘要中
+        
+        :param current_summary: 当前的全局摘要字符串
+        :param new_info: 需要合并到全局摘要的新信息
+        :param game_id: 游戏ID，用于标识当前游戏会话
+        :param agent_id: 智能体ID，用于标识当前智能体
+        :param round_num: 当前轮次编号
+        :return: 合并后的全局摘要字符串
+        """
+        # 使用模板构建器加载merge_summary.j2模板，并用当前摘要、新信息和轮次号渲染
+        from ai_werewolf_core.agents.prompts.builder import PromptBuilder
+        builder = PromptBuilder()
+        template = builder.env.get_template("merge_summary.j2")
+        full_prompt = template.render(current_summary=current_summary, new_info=new_info, round_num=round_num)
+        
+        try:
+            # 获取适配器实例并定义响应模型
+            adapter = AdapterFactory.get_adapter("compression_model")
+            from pydantic import BaseModel
+            class StringResponse(BaseModel):
+                content: str
+                
+            # 创建请求对象，指定压缩模型参数
+            request = AdapterRequest(
+                model_id="compression_model",
+                agent_id="system_compressor",
+                game_id=game_id,
+                phase=GamePhase.INIT,
+                full_prompt=full_prompt,
+                temperature=0.3,
+                max_tokens=1024,
+                response_model=StringResponse
+            )
+            
+            # 异步调用适配器生成合并后的内容
+            response = await adapter.agenerate(request)
+            
+            if response.is_success:
+                result = response.raw_content
+            else:
+                logger.warning("merge_global_summary_llm_failed", error=response.error_message)
+                result = current_summary + "\n" + new_info # 回退机制：如果LLM调用失败，则简单拼接新信息
+                
+        except Exception as e:
+            logger.error("merge_global_summary_exception", error=str(e), exc_info=True)
+            result = current_summary + "\n" + new_info # 回退机制：异常情况下同样简单拼接
+            
+        # 尝试将合并后的结果保存到Redis缓存中，设置过期时间为7天
+        try:
+            redis = await RedisClientManager.get_client()
+            key = RedisKeys.global_summary(game_id, agent_id)
+            await redis.set(key, result, ex=7 * 24 * 3600)
+        except Exception as e:
+            logger.error("save_global_summary_failed", error=str(e), exc_info=True)
+            
+        return result
+
+    @classmethod
+    async def extreme_compress_summary(cls, current_summary: str, game_id: str, agent_id: str) -> str:
+        """
+        极限压缩全局摘要
+        使用大语言模型对当前摘要进行极限压缩，并将结果存储到Redis中
+        
+        :param current_summary: 当前需要被压缩的摘要文本
+        :param game_id: 游戏会话ID
+        :param agent_id: 智能体ID
+        :return: 压缩后的摘要文本
+        """
+        from ai_werewolf_core.agents.prompts.builder import PromptBuilder
+        builder = PromptBuilder()
+        template = builder.env.get_template("extreme_compress.j2")
+        # 使用模板渲染压缩提示词
+        full_prompt = template.render(current_summary=current_summary)
+        
+        try:
+            # 获取适配器并构建请求以调用大语言模型进行摘要压缩
+            adapter = AdapterFactory.get_adapter("compression_model")
+            from pydantic import BaseModel
+            class StringResponse(BaseModel):
+                content: str
+                
+            request = AdapterRequest(
+                model_id="compression_model",
+                agent_id="system_compressor",
+                game_id=game_id,
+                phase=GamePhase.INIT,
+                full_prompt=full_prompt,
+                temperature=0.3,
+                max_tokens=512,
+                response_model=StringResponse
+            )
+            
+            response = await adapter.agenerate(request)
+            
+            if response.is_success:
+                result = response.raw_content
+            else:
+                logger.warning("extreme_compress_summary_llm_failed", error=response.error_message)
+                result = current_summary[:500] # 回退机制：截取前500字符
+                
+        except Exception as e:
+            logger.error("extreme_compress_summary_exception", error=str(e), exc_info=True)
+            result = current_summary[:500] # 异常时回退机制：截取前500字符
+            
+        try:
+            # 将压缩结果保存到Redis缓存中，设置过期时间为7天
+            redis = await RedisClientManager.get_client()
+            key = RedisKeys.global_summary(game_id, agent_id)
+            await redis.set(key, result, ex=7 * 24 * 3600)
+        except Exception as e:
+            logger.error("save_extreme_compressed_summary_failed", error=str(e), exc_info=True)
+            
+        return result

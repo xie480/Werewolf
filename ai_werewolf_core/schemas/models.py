@@ -120,6 +120,7 @@ class RoundMemory(BaseModel):
     compressed_public: Optional[CompressionResponse] = Field(default=None, description="本轮压缩后的公共记忆")
     private_facts: List[PrivateEventLog] = Field(default_factory=list, description="本轮私有事实")
     reasoning: List[str] = Field(default_factory=list, description="本轮推理摘要")
+    compressed_reasoning: Optional[str] = Field(default=None, description="本轮压缩后的推理")
 
 class MemorySnapshot(BaseModel):
     """传递给 LangGraph 的完整记忆快照"""
@@ -127,6 +128,7 @@ class MemorySnapshot(BaseModel):
     game_id: str
     private_state: PrivateState = Field(..., description="当前私有状态")
     history: List[RoundMemory] = Field(..., description="记忆轮次列表，按轮次顺序")
+    global_summary: Optional[str] = Field(default=None, description="全局长期摘要")
     experiences: List[str] = Field(default_factory=list, description="从 RAG 检索到的历史经验")
     last_suspect_list: Dict[str, float] = Field(default_factory=dict, description="上一次的嫌疑人列表")
 

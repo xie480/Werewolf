@@ -43,8 +43,9 @@ def sample_snapshot():
         experiences=["上次悍跳预言家时，发言不够自信被识破，这次要注意语气。"]
     )
 
-def test_build_prompt_werewolf(prompt_builder, sample_snapshot):
-    prompt = prompt_builder.build_prompt(sample_snapshot)
+@pytest.mark.asyncio
+async def test_build_prompt_werewolf(prompt_builder, sample_snapshot):
+    prompt = await prompt_builder.build_prompt(sample_snapshot)
     
     # 验证系统层
     assert "你的玩家ID是：player_1" in prompt
@@ -65,47 +66,52 @@ def test_build_prompt_werewolf(prompt_builder, sample_snapshot):
     assert "你必须且只能输出一个合法的 JSON 对象" in prompt
     assert "internal_monologue" in prompt
 
-def test_build_prompt_seer(prompt_builder, sample_snapshot):
+@pytest.mark.asyncio
+async def test_build_prompt_seer(prompt_builder, sample_snapshot):
     sample_snapshot.private_state.role = Role.SEER
     sample_snapshot.private_state.faction = Faction.VILLAGER
     sample_snapshot.private_state.teammates = []
     
-    prompt = prompt_builder.build_prompt(sample_snapshot)
+    prompt = await prompt_builder.build_prompt(sample_snapshot)
     
     assert "你的底牌是：预言家" in prompt
     assert "带领你的阵营（VILLAGER）获得最终胜利" in prompt
 
-def test_build_prompt_witch(prompt_builder, sample_snapshot):
+@pytest.mark.asyncio
+async def test_build_prompt_witch(prompt_builder, sample_snapshot):
     sample_snapshot.private_state.role = Role.WITCH
     sample_snapshot.private_state.faction = Faction.VILLAGER
     sample_snapshot.private_state.teammates = []
     sample_snapshot.private_state.skill_status = {"has_antidote": True, "has_poison": True}
     
-    prompt = prompt_builder.build_prompt(sample_snapshot)
+    prompt = await prompt_builder.build_prompt(sample_snapshot)
     
     assert "你的底牌是：女巫" in prompt
     assert "{'has_antidote': True, 'has_poison': True}" in prompt
 
-def test_build_prompt_villager(prompt_builder, sample_snapshot):
+@pytest.mark.asyncio
+async def test_build_prompt_villager(prompt_builder, sample_snapshot):
     sample_snapshot.private_state.role = Role.VILLAGER
     sample_snapshot.private_state.faction = Faction.VILLAGER
     sample_snapshot.private_state.teammates = []
     
-    prompt = prompt_builder.build_prompt(sample_snapshot)
+    prompt = await prompt_builder.build_prompt(sample_snapshot)
     
     assert "你的底牌是：村民" in prompt
 
-def test_build_prompt_hunter(prompt_builder, sample_snapshot):
+@pytest.mark.asyncio
+async def test_build_prompt_hunter(prompt_builder, sample_snapshot):
     sample_snapshot.private_state.role = Role.HUNTER
     sample_snapshot.private_state.faction = Faction.VILLAGER
     sample_snapshot.private_state.teammates = []
     
-    prompt = prompt_builder.build_prompt(sample_snapshot)
+    prompt = await prompt_builder.build_prompt(sample_snapshot)
     
     assert "你的底牌是：猎人" in prompt
 
-def test_build_prompt_empty_timeline(prompt_builder, sample_snapshot):
+@pytest.mark.asyncio
+async def test_build_prompt_empty_timeline(prompt_builder, sample_snapshot):
     sample_snapshot.history = []
-    prompt = prompt_builder.build_prompt(sample_snapshot)
+    prompt = await prompt_builder.build_prompt(sample_snapshot)
     
     assert "当前游戏阶段（INIT）" in prompt

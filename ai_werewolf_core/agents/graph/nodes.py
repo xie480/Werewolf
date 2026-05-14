@@ -118,7 +118,7 @@ async def memory_node(state: AgentState) -> Dict[str, Any]:
         )
         
         prompt_builder = PromptBuilder()
-        full_prompt = prompt_builder.build_prompt(snapshot_obj)
+        full_prompt = await prompt_builder.build_prompt(snapshot_obj)
         
         return {
             "memory_snapshot": snapshot_obj.model_dump(),

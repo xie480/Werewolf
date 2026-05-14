@@ -141,3 +141,19 @@ class RedisKeys:
         内容结构: 压缩后的摘要文本
         """
         return f"{RedisKeys.COMPRESSED_MEMORY_SUMMARY_PREFIX}:{game_id}"
+
+    @staticmethod
+    def compressed_reasoning(game_id: str, agent_id: str) -> str:
+        """构建单轮压缩推理 Hash Key: werewolf:game:{game_id}:agent:{agent_id}:compressed_reasoning
+        存储结构: Hash
+        内容结构: Field 为 round_num, Value 为压缩后的推理文本
+        """
+        return f"werewolf:game:{game_id}:agent:{agent_id}:compressed_reasoning"
+
+    @staticmethod
+    def global_summary(game_id: str, agent_id: str) -> str:
+        """构建全局长期摘要 String Key: werewolf:game:{game_id}:agent:{agent_id}:global_summary
+        存储结构: String
+        内容结构: 纯文本字符串
+        """
+        return f"werewolf:game:{game_id}:agent:{agent_id}:global_summary"

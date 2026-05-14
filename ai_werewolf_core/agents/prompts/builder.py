@@ -39,13 +39,24 @@ class PromptBuilder:
             current_phase=current_phase
         )
 
-    def _render_context(self, snapshot: MemorySnapshot) -> str:
+    def _render_context(self, snapshot: MemorySnapshot, window_size: int = 2) -> str:
         """
         注入历史信息，如系统反馈，公共时间线，历史内核，历史经验
         """
         template = self.env.get_template("context.j2")
+        
+        # 根据 window_size 划分近期记忆和全局摘要
+        current_round = snapshot.history[-1].round_num if snapshot.history else 1
+        
+        recent_history = []
+        if window_size > 0:
+            recent_history = snapshot.history[-window_size:]
+            
         return template.render(
-            history=snapshot.history,
+            global_summary=snapshot.global_summary,
+            recent_history=recent_history,
+            current_round=current_round,
+            window_size=window_size,
             last_suspect_list=snapshot.last_suspect_list,
             experiences=snapshot.experiences
         )
@@ -57,9 +68,10 @@ class PromptBuilder:
         template = self.env.get_template("format.j2")
         return template.render()
 
-    def build_prompt(self, snapshot: MemorySnapshot) -> str:
+    async def build_prompt(self, snapshot: MemorySnapshot, max_tokens: int = 6000) -> str:
         """
         根据记忆快照，组装完整的 Prompt。
+        执行多层级熔断管线 (Assembly & Fallback Pipeline)
         """
         current_phase = "INIT"
         if snapshot.history and snapshot.history[-1].public_events:
@@ -67,7 +79,51 @@ class PromptBuilder:
 
         system_part = self._render_system(snapshot, current_phase)
         role_part = self._render_role_strategy(snapshot.private_state.role, snapshot, current_phase)
-        context_part = self._render_context(snapshot)
         format_part = self._render_format()
-
+        
+        from ai_werewolf_core.agents.memory.pruner import MemoryPruner
+        from ai_werewolf_core.config import settings
+        pruner = MemoryPruner(settings.compression_model_name)
+        
+        base_tokens = pruner.count_tokens(system_part) + pruner.count_tokens(role_part) + pruner.count_tokens(format_part)
+        
+        # 1. 初次组装尝试 (Normal Assembly)
+        window_size = 2
+        
+        while window_size >= 0:
+            context_part = self._render_context(snapshot, window_size=window_size)
+            total_tokens = base_tokens + pruner.count_tokens(context_part)
+            
+            if total_tokens <= max_tokens:
+                return f"{system_part}\n\n{role_part}\n\n{context_part}\n\n{format_part}"
+                
+            # 2. 降级 1：强制缩小滑动窗口 (Shrink Window)
+            window_size -= 1
+            
+        # 3. 降级 2：极限压缩全局摘要 (Extreme Compression)
+        if snapshot.global_summary:
+            from ai_werewolf_core.agents.memory.compression import MemoryCompressionService
+            from ai_werewolf_core.utils.logger import get_logger
+            logger = get_logger(__name__)
+            logger.warning("prompt_tokens_exceeded_triggering_extreme_compression", agent_id=snapshot.agent_id)
+            
+            compressed_summary = await MemoryCompressionService.extreme_compress_summary(
+                snapshot.global_summary, snapshot.game_id, snapshot.agent_id
+            )
+            snapshot.global_summary = compressed_summary
+            
+            context_part = self._render_context(snapshot, window_size=0)
+            total_tokens = base_tokens + pruner.count_tokens(context_part)
+            
+            if total_tokens <= max_tokens:
+                return f"{system_part}\n\n{role_part}\n\n{context_part}\n\n{format_part}"
+                
+        # 4. 降级 3：暴力截断 (Truncation)
+        # 如果依然超限，直接截断 global_summary
+        if snapshot.global_summary:
+            # 粗略截断一半
+            half_len = len(snapshot.global_summary) // 2
+            snapshot.global_summary = snapshot.global_summary[:half_len] + "...(截断)"
+            context_part = self._render_context(snapshot, window_size=0)
+            
         return f"{system_part}\n\n{role_part}\n\n{context_part}\n\n{format_part}"

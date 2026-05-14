@@ -180,3 +180,116 @@ def submit_agent_action(
                 }
 
     return asyncio.run(_submit())
+
+
+@shared_task(name="agents.archive_memory", bind=True)
+def task_archive_memory(
+    self,
+    game_id: str,
+    agent_id: str,
+    round_num: int,
+) -> Dict[str, Any]:
+    """
+    Celery 任务：异步归档单轮记忆。
+    
+    执行流程：
+    1. 压缩单轮推理记录
+    2. 将本轮信息（公共事件摘要、私有事实、压缩推理）合并到全局摘要中
+    """
+    logger.info(
+        "archive_memory_task_started",
+        task_id=self.request.id,
+        game_id=game_id,
+        agent_id=agent_id,
+        round_num=round_num,
+    )
+    
+    import asyncio
+    from ai_werewolf_core.agents.memory.compression import MemoryCompressionService
+    from ai_werewolf_core.agents.memory.private import PrivateMemoryManager
+    from ai_werewolf_core.agents.memory.public import PublicMemoryManager
+    from ai_werewolf_core.utils.redis_client import RedisClientManager
+    from ai_werewolf_core.constant.redis_keys import RedisKeys
+    
+    async def _archive():
+        try:
+            private_mgr = PrivateMemoryManager()
+            public_mgr = PublicMemoryManager()
+            
+            # 1. 获取本轮推理记录并压缩
+            private_round_data = await private_mgr.get_private_round_data(game_id, agent_id)
+            round_data = private_round_data.get(round_num, {})
+            reasoning = round_data.get("reasoning", [])
+            
+            compressed_reasoning = await MemoryCompressionService.compress_reasoning(
+                reasoning=reasoning,
+                game_id=game_id,
+                agent_id=agent_id,
+                round_num=round_num
+            )
+            
+            # 2. 收集本轮所有信息用于合并
+            # 获取公共记忆摘要
+            redis = await RedisClientManager.get_client()
+            key = RedisKeys.compressed_memory_summary(game_id)
+            raw_data = await redis.hget(key, str(round_num))
+            
+            public_summary = ""
+            if raw_data:
+                import json
+                data = json.loads(raw_data)
+                public_summary = f"公共事件摘要：\n- 发言概括：{data.get('speech_summary', '')}\n- 关键事实：{data.get('key_facts', '')}"
+            else:
+                # 如果还没有压缩公共事件，则在此处触发压缩
+                all_round_memories = await public_mgr.fetch_round_memories(game_id)
+                target_rm = next((rm for rm in all_round_memories if rm.round_num == round_num), None)
+                if target_rm and target_rm.public_events:
+                    comp_resp = await MemoryCompressionService.compress(
+                        events=target_rm.public_events,
+                        game_id=game_id,
+                        round_num=round_num
+                    )
+                    public_summary = f"公共事件摘要：\n- 发言概括：{comp_resp.speech_summary}\n- 关键事实：{comp_resp.key_facts}"
+                
+            # 获取私有事实
+            private_facts = round_data.get("private_facts", [])
+            private_facts_text = "私有事实：\n" + "\n".join([f"- [{f.phase.value}] {f.description}" for f in private_facts]) if private_facts else ""
+            
+            # 组装本轮新信息
+            new_info_parts = []
+            if public_summary:
+                new_info_parts.append(public_summary)
+            if private_facts_text:
+                new_info_parts.append(private_facts_text)
+            if compressed_reasoning:
+                new_info_parts.append(f"我的推理：\n{compressed_reasoning}")
+                
+            new_info = "\n\n".join(new_info_parts)
+            
+            # 3. 获取当前全局摘要并合并
+            global_summary_key = RedisKeys.global_summary(game_id, agent_id)
+            current_summary = await redis.get(global_summary_key) or ""
+            
+            if new_info:
+                await MemoryCompressionService.merge_global_summary(
+                    current_summary=current_summary,
+                    new_info=new_info,
+                    game_id=game_id,
+                    agent_id=agent_id,
+                    round_num=round_num
+                )
+                
+            logger.info(
+                "archive_memory_task_completed",
+                task_id=self.request.id,
+                game_id=game_id,
+                agent_id=agent_id,
+                round_num=round_num,
+            )
+            return {"success": True}
+            
+        except Exception as e:
+            logger.error("archive_memory_task_failed", error=str(e), exc_info=True)
+            return {"success": False, "error": str(e)}
+            
+    return asyncio.run(_archive())

@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):
     # 关闭
     logger.info("werewolf_game_engine_shutting_down")
     try:
-        await RedisClientManager.close_all()
+        await RedisClientManager.close()
         logger.info("redis_connections_closed")
     except Exception as e:
         logger.error("redis_close_failed", error=str(e), exc_info=True)

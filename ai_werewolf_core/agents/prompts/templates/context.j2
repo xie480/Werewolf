@@ -1,7 +1,14 @@
-【游戏记忆与历史】
-以下是按轮次整理的游戏历史，包含公共事件、你收到的私有事实（绝对真实）以及你当时的推理：
-{% for round_mem in history %}
+【全局历史摘要 (第 1 轮至第 {{ current_round - window_size }} 轮)】
+{% if global_summary %}
+{{ global_summary }}
+{% else %}
+暂无早期历史摘要。
+{% endif %}
+
+【近期记忆 (最近 {{ window_size }} 轮)】
+{% for round_mem in recent_history %}
 ### 第 {{ round_mem.round_num }} 轮 ###
+
 {% if round_mem.compressed_public %}
 [公共事件摘要]
 - 发言概括：{{ round_mem.compressed_public.speech_summary }}
@@ -12,14 +19,18 @@
 - [{{ event.phase.value }}] {{ event.description }}
 {% endfor %}
 {% endif %}
+
 {% if round_mem.private_facts %}
 [私有事实] (绝对真实，不可违背)
 {% for fact in round_mem.private_facts %}
 - [{{ fact.phase.value }}] {{ fact.description }}
 {% endfor %}
 {% endif %}
-{% if round_mem.reasoning %}
+
 [你的推理]
+{% if round_mem.compressed_reasoning %}
+{{ round_mem.compressed_reasoning }}
+{% elif round_mem.reasoning %}
 {% for r in round_mem.reasoning %}
 - {{ r }}
 {% endfor %}

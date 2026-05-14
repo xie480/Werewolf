@@ -1,3 +1,4 @@
+from typing import List, Any
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import computed_field, field_validator, Field
 
@@ -56,6 +57,8 @@ class Settings(BaseSettings):
     compression_model_url: str = "https://api.openai.com/v1"
     compression_model_key: str = ""
     compression_model_name: str = "gpt-3.5-turbo"
+    # 模型配置列表（可在 .env 中覆盖或在运行时动态加载）
+    models: List[Any] = Field(default_factory=list)
 
     @field_validator("debug", mode="before")
     @classmethod
