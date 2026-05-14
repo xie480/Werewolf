@@ -67,17 +67,26 @@ class MemoryPruner:
         logger.info(f"降级裁剪完成，保留了 {len(pruned_timeline)}/{len(timeline)} 条事件，当前 Token: {accumulated_tokens}")
         return pruned_timeline
         
-    async def compress_events(self, events: List[PublicEventLog]) -> str:
+    async def compress_events(self, events: List[PublicEventLog], game_id: str, round_num: int) -> str:
         """
-        使用轻量级 LLM 压缩历史事件（待实现）。
+        使用轻量级 LLM 压缩历史事件。
         
         Args:
             events: 需要压缩的历史事件列表
+            game_id: 对局 ID
+            round_num: 轮次
             
         Returns:
             压缩后的摘要文本
         """
         from ai_werewolf_core.agents.memory.compression import MemoryCompressionService
+        from ai_werewolf_core.config import settings
         
         logger.info(f"开始使用 LLM 压缩 {len(events)} 条事件")
-        return await MemoryCompressionService.compress(events, game_id="unknown") # TODO: 传递真实的 game_id
+        result = await MemoryCompressionService.compress(
+            events,
+            game_id=game_id,
+            round_num=round_num,
+            model_id=settings.compression_model_id
+        )
+        return f"【发言摘要】\n{result.speech_summary}\n【关键事实】\n{result.key_facts}"

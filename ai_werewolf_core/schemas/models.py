@@ -100,10 +100,24 @@ class PrivateState(BaseModel):
     skill_status: Dict[str, Any] = Field(default_factory=dict, description="技能状态（如女巫解药是否可用）")
 
 
+class CompressionRequest(BaseModel):
+    """记忆压缩请求"""
+    game_id: str
+    round_num: int = Field(..., description="需要压缩的轮次")
+    model_id: str = Field(default="default-openai", description="用于压缩的模型ID")
+
+
+class CompressionResponse(BaseModel):
+    """记忆压缩响应（两段式）"""
+    speech_summary: str = Field(..., description="每个玩家发言或遗言的简要概括")
+    key_facts: str = Field(..., description="谁死了、谁被投票了、谁投的谁等关键事实")
+
+
 class RoundMemory(BaseModel):
     """单轮记忆 - 包含该轮的公共事件、私有事实和推理"""
     round_num: int = Field(..., description="轮次编号")
     public_events: List[PublicEventLog] = Field(default_factory=list, description="本轮公共事件")
+    compressed_public: Optional[CompressionResponse] = Field(default=None, description="本轮压缩后的公共记忆")
     private_facts: List[PrivateEventLog] = Field(default_factory=list, description="本轮私有事实")
     reasoning: List[str] = Field(default_factory=list, description="本轮推理摘要")
 
@@ -217,14 +231,3 @@ class AdapterResponse(BaseModel):
     error_message: Optional[str] = None
     retry_count: int = 0
     usage: Dict[str, int] = Field(default_factory=dict)
-
-
-class CompressionRequest(BaseModel):
-    """记忆压缩请求"""
-    game_id: str
-    model_id: str = Field(default="default-openai", description="用于压缩的模型ID")
-
-
-class CompressionResponse(BaseModel):
-    """记忆压缩响应"""
-    summary: str = Field(..., description="压缩后的摘要文本")

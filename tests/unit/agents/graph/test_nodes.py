@@ -16,7 +16,10 @@ from ai_werewolf_core.core.action.validator import ValidationResult
 @patch("ai_werewolf_core.agents.memory.private.PrivateMemoryManager")
 async def test_memory_node(mock_private_mgr_class, mock_public_mgr_class):
     mock_public_mgr = mock_public_mgr_class.return_value
-    mock_public_mgr.fetch_round_memories = AsyncMock(return_value=[])
+    mock_public_mgr.get_memory_context = AsyncMock(return_value={
+        "compressed_memories": {},
+        "recent_memories": []
+    })
     
     mock_private_mgr = mock_private_mgr_class.return_value
     from ai_werewolf_core.schemas.models import PrivateState

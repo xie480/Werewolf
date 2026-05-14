@@ -14,8 +14,9 @@ def mock_events():
 
 @pytest.mark.asyncio
 async def test_compress_empty_events():
-    summary = await MemoryCompressionService.compress([], "game_123")
-    assert summary == ""
+    result = await MemoryCompressionService.compress([], "game_123", round_num=1)
+    assert result.speech_summary == ""
+    assert result.key_facts == ""
 
 @pytest.mark.asyncio
 @patch("ai_werewolf_core.agents.memory.compression.AdapterFactory")
@@ -24,8 +25,8 @@ async def test_compress_success(mock_redis_mgr, mock_factory, mock_events):
     # Mock Adapter
     mock_adapter = AsyncMock()
     mock_response = AdapterResponse(
-        raw_content='{"summary": "1号跳预言家，2号平民"}',
-        parsed_data=CompressionResponse(summary="1号跳预言家，2号平民"),
+        raw_content='{"speech_summary": "1号跳预言家，2号平民", "key_facts": "无"}',
+        parsed_data=CompressionResponse(speech_summary="1号跳预言家，2号平民", key_facts="无"),
         is_success=True
     )
     mock_adapter.agenerate.return_value = mock_response
@@ -35,11 +36,13 @@ async def test_compress_success(mock_redis_mgr, mock_factory, mock_events):
     mock_redis = AsyncMock()
     mock_redis_mgr.get_client = AsyncMock(return_value=mock_redis)
     
-    summary = await MemoryCompressionService.compress(mock_events, "game_123")
+    result = await MemoryCompressionService.compress(mock_events, "game_123", round_num=1)
     
-    assert summary == "1号跳预言家，2号平民"
+    assert result.speech_summary == "1号跳预言家，2号平民"
+    assert result.key_facts == "无"
     mock_adapter.agenerate.assert_called_once()
-    mock_redis.setex.assert_called_once()
+    mock_redis.hset.assert_called_once()
+    mock_redis.expire.assert_called_once()
 
 @pytest.mark.asyncio
 @patch("ai_werewolf_core.agents.memory.compression.AdapterFactory")
@@ -59,9 +62,10 @@ async def test_compress_fallback(mock_redis_mgr, mock_factory, mock_events):
     mock_redis = AsyncMock()
     mock_redis_mgr.get_client = AsyncMock(return_value=mock_redis)
     
-    summary = await MemoryCompressionService.compress(mock_events, "game_123")
+    result = await MemoryCompressionService.compress(mock_events, "game_123", round_num=1)
     
     # Should fallback to simple join
-    assert "玩家1发言：我是预言家" in summary
-    assert "玩家2发言：我是平民" in summary
-    mock_redis.setex.assert_called_once()
+    assert "玩家1发言：我是预言家" in result.key_facts
+    assert "玩家2发言：我是平民" in result.key_facts
+    mock_redis.hset.assert_called_once()
+    mock_redis.expire.assert_called_once()

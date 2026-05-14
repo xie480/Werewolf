@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Any
 from ai_werewolf_core.schemas.models import Event
 from ai_werewolf_core.schemas.enums import Visibility, EventType, GamePhase
 from ai_werewolf_core.core.event.bus import event_bus
@@ -77,6 +77,43 @@ class PublicMemoryManager:
             
         return round_memories
         
+    async def get_memory_context(self, game_id: str) -> Dict[str, Any]:
+        """
+        获取完整的记忆上下文，包含历史压缩记忆和近期未压缩的全量记忆。
+        """
+        from ai_werewolf_core.utils.redis_client import RedisClientManager
+        from ai_werewolf_core.constant.redis_keys import RedisKeys
+        import json
+        from ai_werewolf_core.schemas.models import CompressionResponse
+        from typing import Any
+        
+        redis = await RedisClientManager.get_client()
+        key = RedisKeys.compressed_memory_summary(game_id)
+        
+        # 1. 获取所有压缩记忆
+        raw_data = await redis.hgetall(key)
+        compressed_memories = {}
+        max_compressed_round = 0
+        
+        if raw_data:
+            for round_str, json_str in raw_data.items():
+                try:
+                    round_num = int(round_str)
+                    data = json.loads(json_str)
+                    compressed_memories[round_num] = CompressionResponse(**data)
+                    max_compressed_round = max(max_compressed_round, round_num)
+                except (ValueError, json.JSONDecodeError):
+                    continue
+                    
+        # 2. 获取未压缩的近期记忆
+        all_round_memories = await self.fetch_round_memories(game_id)
+        recent_memories = [rm for rm in all_round_memories if rm.round_num > max_compressed_round]
+        
+        return {
+            "compressed_memories": compressed_memories,
+            "recent_memories": recent_memories
+        }
+
     def _format_event_to_nl(self, event: Event) -> str:
         """将结构化 Event 转换为自然语言描述"""
         payload = event.payload

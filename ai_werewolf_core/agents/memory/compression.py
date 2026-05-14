@@ -14,25 +14,32 @@ class MemoryCompressionService:
     """记忆压缩服务"""
     
     @classmethod
-    async def compress(cls, events: List[PublicEventLog], game_id: str, model_id: str = "default-openai") -> str:
+    async def compress(cls, events: List[PublicEventLog], game_id: str, round_num: int, model_id: str = "default-openai") -> CompressionResponse:
         """
-        压缩事件列表并存储到 Redis
+        压缩单轮事件列表并存储到 Redis Hash
         """
         if not events:
-            return ""
+            return CompressionResponse(speech_summary="", key_facts="")
             
+        # 0. 检查是否已压缩（防止并发重复压缩）
+        try:
+            redis = await RedisClientManager.get_client()
+            key = RedisKeys.compressed_memory_summary(game_id)
+            exists = await redis.hexists(key, str(round_num))
+            if exists:
+                logger.info(f"Round {round_num} already compressed, skipping LLM call.")
+                raw_data = await redis.hget(key, str(round_num))
+                data = json.loads(raw_data)
+                return CompressionResponse(**data)
+        except Exception as e:
+            logger.warning("check_compressed_summary_failed", error=str(e))
+
         # 1. 组装 full_prompt
         events_text = "\n".join([e.description for e in events])
-        full_prompt = f"""请作为狼人杀高级复盘专家，对以下历史公共事件进行高度浓缩的逻辑摘要。
-要求：
-1. 保留关键帧（如死亡播报、投票结果、阶段切换）。
-2. 对玩家发言进行逻辑提炼（如“1号跳预言家查杀2号”，“3号跟票”），丢弃冗余的语气词。
-3. 按照时间线顺序输出。
-4. 必须返回 JSON 格式，包含 `summary` 字段。
-
-历史事件：
-{events_text}
-"""
+        from ai_werewolf_core.agents.prompts.builder import PromptBuilder
+        builder = PromptBuilder()
+        template = builder.env.get_template("compression.j2")
+        full_prompt = template.render(round_num=round_num, events_text=events_text)
         
         # 2. 调用适配器
         try:
@@ -51,22 +58,24 @@ class MemoryCompressionService:
             response = await adapter.agenerate(request)
             
             if response.is_success and response.parsed_data:
-                summary = response.parsed_data.summary
+                result = response.parsed_data
             else:
                 logger.warning("compression_llm_failed", error=response.error_message)
-                summary = events_text # 回退为简单拼接
+                result = CompressionResponse(speech_summary="压缩失败", key_facts=events_text) # 回退
                 
         except Exception as e:
             logger.error("compression_exception", error=str(e), exc_info=True)
-            summary = events_text # 回退为简单拼接
+            result = CompressionResponse(speech_summary="压缩异常", key_facts=events_text) # 回退
             
-        # 3. 存入 Redis
+        # 3. 存入 Redis Hash
         try:
             redis = await RedisClientManager.get_client()
             key = RedisKeys.compressed_memory_summary(game_id)
+            # 存入 Hash，Field 为 round_num
+            await redis.hset(key, str(round_num), result.model_dump_json())
             # 设置 7 天过期
-            await redis.setex(key, 7 * 24 * 3600, summary)
+            await redis.expire(key, 7 * 24 * 3600)
         except Exception as e:
             logger.error("save_compressed_summary_failed", error=str(e), exc_info=True)
             
-        return summary
+        return result

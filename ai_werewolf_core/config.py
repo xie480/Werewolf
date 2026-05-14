@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     snowflake_datacenter_id: int = 1       # 数据中心 ID (0-31)，根据实际部署环境调整
     snowflake_worker_id: int = 1           # 工作节点 ID (0-31)，每个节点/进程需唯一
 
+    # 记忆压缩配置
+    compression_model_id: str = "default-openai" # 用于记忆压缩的轻量模型 ID
+
     @field_validator("debug", mode="before")
     @classmethod
     def coerce_debug_bool(cls, v):

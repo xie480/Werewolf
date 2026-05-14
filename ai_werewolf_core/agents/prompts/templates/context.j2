@@ -2,7 +2,11 @@
 以下是按轮次整理的游戏历史，包含公共事件、你收到的私有事实（绝对真实）以及你当时的推理：
 {% for round_mem in history %}
 ### 第 {{ round_mem.round_num }} 轮 ###
-{% if round_mem.public_events %}
+{% if round_mem.compressed_public %}
+[公共事件摘要]
+- 发言概括：{{ round_mem.compressed_public.speech_summary }}
+- 关键事实：{{ round_mem.compressed_public.key_facts }}
+{% elif round_mem.public_events %}
 [公共事件]
 {% for event in round_mem.public_events %}
 - [{{ event.phase.value }}] {{ event.description }}

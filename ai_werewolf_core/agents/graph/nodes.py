@@ -53,8 +53,11 @@ async def memory_node(state: AgentState) -> Dict[str, Any]:
         public_mgr = PublicMemoryManager()
         private_mgr = PrivateMemoryManager()
         
-        # 获取按轮次聚合的公共记忆
-        round_memories = await public_mgr.fetch_round_memories(game_id)
+        # 获取公共记忆上下文（包含压缩记忆和近期全量记忆）
+        memory_context = await public_mgr.get_memory_context(game_id)
+        compressed_memories = memory_context["compressed_memories"]
+        recent_memories = memory_context["recent_memories"]
+        
         # 获取玩家私有状态
         private_state = await private_mgr.get_private_state(game_id, player_id, player_id)
         # 获取玩家私有轮次数据
@@ -62,15 +65,38 @@ async def memory_node(state: AgentState) -> Dict[str, Any]:
         # 获取玩家最近一次的嫌疑人列表
         last_suspect_list = await private_mgr.get_last_suspect_list(game_id, player_id)
         
-        # 合并公共和私有轮次数据
-        for rm in round_memories:
-            r_num = rm.round_num
-            if r_num in private_round_data:
-                rm.private_facts = private_round_data[r_num].get("private_facts", [])
-                rm.reasoning = private_round_data[r_num].get("reasoning", [])
-                
-        # 处理可能只有私有数据没有公共数据的轮次
-        existing_rounds = {rm.round_num for rm in round_memories}
+        # 组装所有轮次记忆
+        from ai_werewolf_core.schemas.models import RoundMemory
+        round_memories_dict = {}
+        
+        # 1. 填入压缩记忆
+        for r_num, comp_resp in compressed_memories.items():
+            round_memories_dict[r_num] = RoundMemory(
+                round_num=r_num,
+                public_events=[],
+                compressed_public=comp_resp,
+                private_facts=[],
+                reasoning=[]
+            )
+            
+        # 2. 填入近期全量记忆
+        for rm in recent_memories:
+            round_memories_dict[rm.round_num] = rm
+            
+        # 3. 合并私有轮次数据
+        for r_num, p_data in private_round_data.items():
+            if r_num not in round_memories_dict:
+                round_memories_dict[r_num] = RoundMemory(
+                    round_num=r_num,
+                    public_events=[],
+                    private_facts=[],
+                    reasoning=[]
+                )
+            round_memories_dict[r_num].private_facts = p_data.get("private_facts", [])
+            round_memories_dict[r_num].reasoning = p_data.get("reasoning", [])
+            
+        round_memories = list(round_memories_dict.values())
+        round_memories.sort(key=lambda x: x.round_num)
         for r_num, p_data in private_round_data.items():
             if r_num not in existing_rounds:
                 from ai_werewolf_core.schemas.models import RoundMemory
