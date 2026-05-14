@@ -25,13 +25,14 @@ async def memory_node(state: AgentState) -> Dict[str, Any]:
     """
     感知与记忆节点。
 
-    负责调用 Memory System，获取当前 Agent 的 PUBLIC/PRIVATE/FACTION 记忆快照。
+    负责调用 Memory System，获取当前 Agent 的 PUBLIC/PRIVATE/FACTION 记忆快照，
+    并调用 Prompt Builder 构建完整的提示词。
 
     Args:
         state: 当前 AgentState
 
     Returns:
-        包含 memory_snapshot 的状态更新字典
+        包含 memory_snapshot 和 full_prompt 的状态更新字典
     """
     game_id = state["game_id"]
     player_id = state["player_id"]
@@ -43,29 +44,54 @@ async def memory_node(state: AgentState) -> Dict[str, Any]:
         phase=state["current_phase"],
     )
 
-    # TODO: 实际调用 Memory System
-    # from ai_werewolf_core.agents.memory import MemoryManager
-    # snapshot = await MemoryManager.build_snapshot(game_id, player_id)
+    from ai_werewolf_core.agents.memory.public import PublicMemoryManager
+    from ai_werewolf_core.agents.memory.private import PrivateMemoryManager
+    from ai_werewolf_core.agents.prompts.builder import PromptBuilder
+    from ai_werewolf_core.schemas.models import MemorySnapshot
 
-    # 占位实现
-    snapshot = {
-        "game_id": game_id,
-        "player_id": player_id,
-        "phase": state["current_phase"],
-        "public_memory": [],
-        "private_memory": {},
-        "faction_memory": [],
-        "timestamp": None,
-    }
-
-    return {"memory_snapshot": snapshot}
+    try:
+        public_mgr = PublicMemoryManager()
+        private_mgr = PrivateMemoryManager()
+        
+        # 获取公共时间线
+        public_timeline = await public_mgr.fetch_timeline(game_id)
+        # 获取玩家私有状态
+        private_state = await private_mgr.get_private_state(game_id, player_id, player_id)
+        # 获取玩家历史内心 OS。
+        historical_reasoning = await private_mgr.get_historical_reasoning(game_id, player_id)
+        # 获取玩家最近一次的嫌疑人列表
+        last_suspect_list = await private_mgr.get_last_suspect_list(game_id, player_id)
+        
+        snapshot_obj = MemorySnapshot(
+            agent_id=player_id,
+            game_id=game_id,
+            public_timeline=public_timeline,
+            private_state=private_state,
+            historical_reasoning=historical_reasoning,
+            experiences=[],
+            last_suspect_list=last_suspect_list
+        )
+        
+        prompt_builder = PromptBuilder()
+        full_prompt = prompt_builder.build_prompt(snapshot_obj)
+        
+        return {
+            "memory_snapshot": snapshot_obj.model_dump(),
+            "full_prompt": full_prompt
+        }
+    except Exception as e:
+        logger.error("memory_node_error", error=str(e), exc_info=True)
+        return {
+            "memory_snapshot": {},
+            "full_prompt": f"Error building prompt: {str(e)}"
+        }
 
 
 async def reasoning_node(state: AgentState) -> Dict[str, Any]:
     """
     推理决策节点。
 
-    负责调用 Prompt Builder 构建提示词，通过 Model Adapter 调用 LLM，
+    负责通过 Model Adapter 调用 LLM，
     解析响应并填充 proposed_action、internal_monologue、suspect_list。
 
     Args:
@@ -77,7 +103,7 @@ async def reasoning_node(state: AgentState) -> Dict[str, Any]:
     game_id = state["game_id"]
     player_id = state["player_id"]
     current_phase = state["current_phase"]
-    memory_snapshot = state.get("memory_snapshot")
+    full_prompt = state.get("full_prompt", "")
     validation_errors = state.get("validation_errors", [])
 
     logger.debug(
@@ -88,45 +114,92 @@ async def reasoning_node(state: AgentState) -> Dict[str, Any]:
         retry_count=state.get("retry_count", 0),
     )
 
-    # TODO: 实际调用 Prompt Builder 和 Model Adapter
-    # from ai_werewolf_core.agents.prompt import PromptBuilder
-    # prompt = PromptBuilder.build(memory_snapshot, validation_errors)
-    # response = await model_adapter.agenerate(prompt)
+    from ai_werewolf_core.agents.adapter.factory import AdapterFactory
+    from ai_werewolf_core.schemas.models import AdapterRequest
+    from pydantic import BaseModel, Field
 
-    # 占位实现：生成空响应
-    raw_response = "I am thinking..."
-    internal_monologue = "I should skip my turn."
-    suspect_list = {}
-    
-    # 模拟解析成功，生成符合 AgentAction Schema 的动作
-    current_round = state.get("current_round", 1)
-    proposed_action = {
-        "action_type": ActionType.PASS.value,
-        "actor_id": player_id,
-        "target_id": None,
-        "phase": current_phase.value,
-        "round": current_round,
-        "reason": "Stub reasoning",
-        "confidence": 1.0,
-    }
-
-    is_valid = True
-
-    if is_valid:
+    try:
+        # 如果有之前的校验错误，追加到 Prompt 中强制纠正
+        if validation_errors:
+            full_prompt += f"\n\n【系统警告】你上一次的输出存在以下错误，请务必修正：\n{validation_errors[-1]}"
+            
+        # 调用大模型
+        # TODO: 从配置或玩家属性中获取 model_id
+        model_id = "default_model"
+        adapter = AdapterFactory.get_adapter(model_id)
+        
+        # 定义期望的响应模型
+        class AgentResponseSchema(BaseModel):
+            internal_monologue: str = Field(..., description="内心推理过程")
+            suspect_list: Dict[str, float] = Field(default_factory=dict, description="嫌疑人列表")
+            action_type: str = Field(..., description="动作类型")
+            action_target: Optional[str] = Field(None, description="动作目标")
+            speech_content: Optional[str] = Field(None, description="发言内容")
+            confidence: float = Field(1.0, description="确信度")
+            
+        request = AdapterRequest(
+            model_id=model_id,
+            agent_id=player_id,
+            game_id=game_id,
+            phase=current_phase,
+            full_prompt=full_prompt,
+            response_model=AgentResponseSchema
+        )
+        
+        response = await adapter.agenerate(request)
+        
+        if response.is_success and response.parsed_data:
+            parsed_data = response.parsed_data
+            
+            # 构造 proposed_action
+            current_round = state.get("current_round", 1)
+            proposed_action = {
+                "action_type": parsed_data.action_type,
+                "actor_id": player_id,
+                "target_id": parsed_data.action_target,
+                "phase": current_phase.value,
+                "round": current_round,
+                "reason": parsed_data.internal_monologue,
+                "confidence": parsed_data.confidence,
+            }
+            
+            # 如果有发言内容，可以附加到 proposed_action 或单独处理
+            if parsed_data.speech_content and parsed_data.action_type == ActionType.SPEAK.value:
+                proposed_action["speech_content"] = parsed_data.speech_content
+                
+            # 保存内心 OS 和嫌疑人列表
+            from ai_werewolf_core.agents.memory.private import PrivateMemoryManager
+            private_mgr = PrivateMemoryManager()
+            await private_mgr.save_reasoning(game_id, player_id, parsed_data.internal_monologue)
+            if parsed_data.suspect_list:
+                await private_mgr.save_suspect_list(game_id, player_id, parsed_data.suspect_list)
+                
+            return {
+                "raw_llm_response": response.raw_content,
+                "internal_monologue": parsed_data.internal_monologue,
+                "suspect_list": parsed_data.suspect_list,
+                "proposed_action": proposed_action,
+                "is_valid": True,
+                "validation_errors": [],
+            }
+        else:
+            error_msg = response.error_message or "LLM response parsing failed"
+            new_errors = validation_errors + [error_msg]
+            return {
+                "raw_llm_response": response.raw_content,
+                "internal_monologue": "",
+                "suspect_list": {},
+                "proposed_action": None,
+                "is_valid": False,
+                "validation_errors": new_errors,
+                "retry_count": state.get("retry_count", 0) + 1,
+            }
+            
+    except Exception as e:
+        logger.error("reasoning_node_error", error=str(e), exc_info=True)
+        new_errors = validation_errors + [f"Reasoning node error: {str(e)}"]
         return {
-            "raw_llm_response": raw_response,
-            "internal_monologue": internal_monologue,
-            "suspect_list": suspect_list,
-            "proposed_action": proposed_action,
-            "is_valid": True,
-            "validation_errors": [],
-        }
-    else:
-        # 解析失败时记录错误
-        error_msg = "LLM response parsing failed"
-        new_errors = validation_errors + [error_msg]
-        return {
-            "raw_llm_response": raw_response,
+            "raw_llm_response": "",
             "internal_monologue": "",
             "suspect_list": {},
             "proposed_action": None,

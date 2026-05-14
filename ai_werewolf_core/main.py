@@ -23,6 +23,7 @@ from ai_werewolf_core.api.ws.manager import connection_manager
 from ai_werewolf_core.api.ws.routes import router as ws_router
 from ai_werewolf_core.core.event.bus import event_bus
 from ai_werewolf_core.db.session import close_db_engine
+from ai_werewolf_core.tasks.dispatch import register_dispatchers
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
 from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
@@ -131,6 +132,9 @@ app.include_router(ws_router, tags=["WebSocket"])
 # 注册 WebSocket 连接管理器为 EventBus 全局订阅者
 # 每当新事件发布时，自动推送给已连接的 WebSocket 客户端
 event_bus.subscribe_all(connection_manager.on_event)
+
+# 注册 Agent 任务分发器
+register_dispatchers(event_bus)
 
 
 # ============================================================================

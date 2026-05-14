@@ -17,6 +17,9 @@ class PromptBuilder:
         )
 
     def _render_system(self, snapshot: MemorySnapshot, current_phase: str) -> str:
+        """
+        System Prompt：注入agentID，阵营，当前游戏阶段
+        """
         template = self.env.get_template("system.j2")
         return template.render(
             agent_id=snapshot.agent_id,
@@ -25,6 +28,9 @@ class PromptBuilder:
         )
 
     def _render_role_strategy(self, role: Role, snapshot: MemorySnapshot, current_phase: str) -> str:
+        """
+        根据角色，注入角色信息，如队友，技能状态，当前游戏阶段
+        """
         template_name = f"roles/{role.value.lower()}.j2"
         template = self.env.get_template(template_name)
         return template.render(
@@ -34,15 +40,22 @@ class PromptBuilder:
         )
 
     def _render_context(self, snapshot: MemorySnapshot) -> str:
+        """
+        注入历史信息，如系统反馈，公共时间线，历史内核，历史经验
+        """
         template = self.env.get_template("context.j2")
         return template.render(
             system_feedbacks=snapshot.private_state.system_feedbacks,
             public_timeline=snapshot.public_timeline,
             historical_reasoning=snapshot.historical_reasoning,
+            last_suspect_list=snapshot.last_suspect_list,
             experiences=snapshot.experiences
         )
 
     def _render_format(self) -> str:
+        """
+        注入 Prompt 输出格式。
+        """
         template = self.env.get_template("format.j2")
         return template.render()
 

@@ -147,3 +147,46 @@ class PrivateMemoryManager:
         # LRANGE key -limit -1
         raw_reasoning = await redis.lrange(reasoning_key, -limit, -1)
         return [r.decode('utf-8') if isinstance(r, bytes) else r for r in raw_reasoning]
+
+    async def save_suspect_list(self, game_id: str, player_id: str, suspect_list: dict[str, float]) -> None:
+        """
+        保存 Agent 的嫌疑人列表。
+        
+        Args:
+            game_id: 对局 ID
+            player_id: 玩家 ID
+            suspect_list: 嫌疑人列表字典
+        """
+        if not suspect_list:
+            return
+            
+        suspect_key = RedisKeys.private_memory_suspect_list(game_id, player_id)
+        redis = await RedisClientManager.get_client()
+        
+        # 将 float 转换为字符串存储
+        mapping = {k: str(v) for k, v in suspect_list.items()}
+        await redis.hset(suspect_key, mapping=mapping)
+        logger.debug("嫌疑人列表已保存", game_id=game_id, player_id=player_id)
+        
+    async def get_last_suspect_list(self, game_id: str, player_id: str) -> dict[str, float]:
+        """
+        获取上一次的嫌疑人列表。
+        
+        Args:
+            game_id: 对局 ID
+            player_id: 玩家 ID
+            
+        Returns:
+            嫌疑人列表字典
+        """
+        suspect_key = RedisKeys.private_memory_suspect_list(game_id, player_id)
+        redis = await RedisClientManager.get_client()
+        
+        raw_data = await redis.hgetall(suspect_key)
+        if not raw_data:
+            return {}
+            
+        return {
+            k.decode('utf-8') if isinstance(k, bytes) else k: float(v)
+            for k, v in raw_data.items()
+        }

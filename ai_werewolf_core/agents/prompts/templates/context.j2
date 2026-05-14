@@ -16,6 +16,14 @@
 - {{ reasoning }}
 {% endfor %}
 
+{% if last_suspect_list %}
+【上一次的嫌疑度列表】
+以下是你上一次推理得出的嫌疑度列表 (0.0到1.0之间的嫌疑度)，供你参考：
+{% for player_id, suspect_score in last_suspect_list.items() %}
+- {{ player_id }}: {{ suspect_score }}
+{% endfor %}
+{% endif %}
+
 {% if experiences %}
 【经验引用】
 以下是你从过往对局中总结的经验教训，请在本次决策中参考：

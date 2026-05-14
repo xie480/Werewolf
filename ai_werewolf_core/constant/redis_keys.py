@@ -122,3 +122,11 @@ class RedisKeys:
         内容结构: 字符串列表 (Agent 的内心 OS 文本)
         """
         return f"{RedisKeys.PRIVATE_MEMORY_PREFIX}:{game_id}:{player_id}:reasoning"
+
+    @staticmethod
+    def private_memory_suspect_list(game_id: str, player_id: str) -> str:
+        """构建 Agent 私有记忆嫌疑人列表 Hash Key: werewolf:memory:private:{game_id}:{player_id}:suspect_list
+        存储结构: Hash
+        内容结构: Field 为 target_player_id, Value 为嫌疑度 (float 字符串)
+        """
+        return f"{RedisKeys.PRIVATE_MEMORY_PREFIX}:{game_id}:{player_id}:suspect_list"

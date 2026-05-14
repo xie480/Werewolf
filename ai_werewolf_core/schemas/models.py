@@ -105,6 +105,7 @@ class MemorySnapshot(BaseModel):
     private_state: PrivateState = Field(..., description="当前私有状态")
     historical_reasoning: List[str] = Field(default_factory=list, description="历史内心OS摘要")
     experiences: List[str] = Field(default_factory=list, description="从 RAG 检索到的历史经验")
+    last_suspect_list: Dict[str, float] = Field(default_factory=dict, description="上一次的嫌疑人列表")
 
 
 class SpeechContent(BaseModel):
