@@ -1,7 +1,7 @@
 import tiktoken
 from typing import List
 from ai_werewolf_core.utils.logger import get_logger
-from ai_werewolf_core.schemas.models import PublicEventLog
+from ai_werewolf_core.schemas.models import PublicEventLog, RoundMemory
 
 logger = get_logger(__name__)
 
@@ -26,67 +26,55 @@ class MemoryPruner:
         """计算文本的 Token 数量"""
         return len(self.encoding.encode(text))
         
-    def count_events_tokens(self, events: List[PublicEventLog]) -> int:
-        """计算事件列表的 Token 数量"""
-        text = "\n".join([e.description for e in events])
+    def count_round_memories_tokens(self, round_memories: List['RoundMemory']) -> int:
+        """计算轮次记忆列表的 Token 数量（仅计未压缩的公共事件）"""
+        text = ""
+        for rm in round_memories:
+            if rm.public_events:
+                text += "\n".join([e.description for e in rm.public_events]) + "\n"
         return self.count_tokens(text)
 
-    async def prune_timeline(self, timeline: List[PublicEventLog], max_tokens: int = 6000) -> List[PublicEventLog]:
+    async def compress_events(self, round_memories: List['RoundMemory'], game_id: str, max_tokens: int = 6000) -> List['RoundMemory']:
         """
-        裁剪公共时间线。
-        
-        如果总 Token 数超过 max_tokens，则触发裁剪逻辑。
-        目前实现简单的截断策略，后续可接入 LLM 进行摘要压缩。
+        检查 Token 数量，如果超限则自动触发轻量级 LLM 压缩历史事件。
         
         Args:
-            timeline: 原始公共时间线
+            round_memories: 包含公共事件的轮次记忆列表
+            game_id: 对局 ID
             max_tokens: 最大允许的 Token 数量
             
         Returns:
-            裁剪后的公共时间线
+            处理后的轮次记忆列表
         """
-        current_tokens = self.count_events_tokens(timeline)
+        current_tokens = self.count_round_memories_tokens(round_memories)
         if current_tokens <= max_tokens:
-            return timeline
+            return round_memories
             
-        logger.info(f"时间线 Token 超限 ({current_tokens} > {max_tokens})，触发裁剪")
+        logger.info(f"公共记忆 Token 超限 ({current_tokens} > {max_tokens})，触发自动压缩")
         
-        # TODO: 接入轻量级 LLM 进行摘要压缩
-        # 理想策略：保留关键帧（如死亡、投票结果），并对早期发言进行摘要
-        # 目前降级为直接裁剪：从后往前保留，直到达到 max_tokens
-        pruned_timeline = []
-        accumulated_tokens = 0
-        
-        for event in reversed(timeline):
-            event_tokens = self.count_tokens(event.description)
-            if accumulated_tokens + event_tokens > max_tokens:
-                break
-            pruned_timeline.insert(0, event)
-            accumulated_tokens += event_tokens
-            
-        logger.info(f"降级裁剪完成，保留了 {len(pruned_timeline)}/{len(timeline)} 条事件，当前 Token: {accumulated_tokens}")
-        return pruned_timeline
-        
-    async def compress_events(self, events: List[PublicEventLog], game_id: str, round_num: int) -> str:
-        """
-        使用轻量级 LLM 压缩历史事件。
-        
-        Args:
-            events: 需要压缩的历史事件列表
-            game_id: 对局 ID
-            round_num: 轮次
-            
-        Returns:
-            压缩后的摘要文本
-        """
         from ai_werewolf_core.agents.memory.compression import MemoryCompressionService
-        from ai_werewolf_core.config import settings
         
-        logger.info(f"开始使用 LLM 压缩 {len(events)} 条事件")
-        result = await MemoryCompressionService.compress(
-            events,
-            game_id=game_id,
-            round_num=round_num,
-            model_id=settings.compression_model_id
-        )
-        return f"【发言摘要】\n{result.speech_summary}\n【关键事实】\n{result.key_facts}"
+        # 找到所有未压缩的轮次（按轮次从小到大排序，优先压缩最早的轮次）
+        uncompressed_rounds = [rm for rm in round_memories if not rm.compressed_public and rm.public_events]
+        
+        for rm in uncompressed_rounds:
+            if current_tokens <= max_tokens:
+                break
+                
+            logger.info(f"正在压缩第 {rm.round_num} 轮公共记忆...")
+            # 调用压缩服务
+            compressed_resp = await MemoryCompressionService.compress(
+                events=rm.public_events,
+                game_id=game_id,
+                round_num=rm.round_num
+            )
+            
+            # 更新内存中的对象
+            rm.compressed_public = compressed_resp
+            rm.public_events = [] # 清空原始事件
+            
+            # 重新计算 token
+            current_tokens = self.count_round_memories_tokens(round_memories)
+            
+        logger.info(f"自动压缩完成，当前 Token: {current_tokens}")
+        return round_memories

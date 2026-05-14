@@ -53,7 +53,9 @@ class Settings(BaseSettings):
     snowflake_worker_id: int = 1           # 工作节点 ID (0-31)，每个节点/进程需唯一
 
     # 记忆压缩配置
-    compression_model_id: str = "default-openai" # 用于记忆压缩的轻量模型 ID
+    compression_model_url: str = "https://api.openai.com/v1"
+    compression_model_key: str = ""
+    compression_model_name: str = "gpt-3.5-turbo"
 
     @field_validator("debug", mode="before")
     @classmethod

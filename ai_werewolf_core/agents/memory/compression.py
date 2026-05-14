@@ -1,12 +1,11 @@
 import json
 from typing import List
 from ai_werewolf_core.schemas.models import PublicEventLog, AdapterRequest, CompressionResponse
-from ai_werewolf_core.agents.model.registry import ModelRegistry
-from ai_werewolf_core.agents.adapter.factory import AdapterFactory
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
 from ai_werewolf_core.constant.redis_keys import RedisKeys
 from ai_werewolf_core.schemas.enums import GamePhase
+from ai_werewolf_core.agents.adapter.factory import AdapterFactory
 
 logger = get_logger(__name__)
 
@@ -14,7 +13,7 @@ class MemoryCompressionService:
     """记忆压缩服务"""
     
     @classmethod
-    async def compress(cls, events: List[PublicEventLog], game_id: str, round_num: int, model_id: str = "default-openai") -> CompressionResponse:
+    async def compress(cls, events: List[PublicEventLog], game_id: str, round_num: int) -> CompressionResponse:
         """
         压缩单轮事件列表并存储到 Redis Hash
         """
@@ -42,10 +41,13 @@ class MemoryCompressionService:
         full_prompt = template.render(round_num=round_num, events_text=events_text)
         
         # 2. 调用适配器
+        from ai_werewolf_core.config import settings
+        
         try:
-            adapter = AdapterFactory.get_adapter(model_id)
+            # 使用 AdapterFactory 获取已注册的压缩模型适配器
+            adapter = AdapterFactory.get_adapter("compression_model")
             request = AdapterRequest(
-                model_id=model_id,
+                model_id="compression_model",
                 agent_id="system_compressor",
                 game_id=game_id,
                 phase=GamePhase.INIT, # 仅作为占位

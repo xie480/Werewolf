@@ -98,7 +98,7 @@ async def memory_node(state: AgentState) -> Dict[str, Any]:
         round_memories = list(round_memories_dict.values())
         round_memories.sort(key=lambda x: x.round_num)
         for r_num, p_data in private_round_data.items():
-            if r_num not in existing_rounds:
+            if r_num not in round_memories_dict:
                 from ai_werewolf_core.schemas.models import RoundMemory
                 round_memories.append(RoundMemory(
                     round_num=r_num,

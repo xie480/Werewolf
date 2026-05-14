@@ -4,6 +4,8 @@ from ai_werewolf_core.schemas.enums import Visibility, EventType, GamePhase
 from ai_werewolf_core.core.event.bus import event_bus
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.schemas.models import PublicEventLog, RoundMemory
+from ai_werewolf_core.config import settings
+from ai_werewolf_core.agents.memory.pruner import MemoryPruner
 
 logger = get_logger(__name__)
 
@@ -74,8 +76,11 @@ class PublicMemoryManager:
                 private_facts=[],
                 reasoning=[]
             ))
-            
-        return round_memories
+        
+        # 自动触发压缩：检查 token 并在超限时压缩
+        pruner = MemoryPruner(settings.compression_model_name)
+        compressed_round_memories = await pruner.compress_events(round_memories, game_id)
+        return compressed_round_memories
         
     async def get_memory_context(self, game_id: str) -> Dict[str, Any]:
         """

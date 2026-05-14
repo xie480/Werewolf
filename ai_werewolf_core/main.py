@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from ai_werewolf_core.api.routes import games, players, events, actions, models, memory_compression
+from ai_werewolf_core.api.routes import games, players, events, actions, models
 from ai_werewolf_core.api.ws.manager import connection_manager
 from ai_werewolf_core.api.ws.routes import router as ws_router
 from ai_werewolf_core.core.event.bus import event_bus
@@ -133,9 +133,6 @@ app.include_router(actions.router, prefix="/api/games", tags=["Actions"])
 
 # 模型管理
 app.include_router(models.router, prefix="/api", tags=["Models"])
-
-# 记忆压缩
-app.include_router(memory_compression.router, prefix="/api", tags=["Memory"])
 
 # Phase 3 后续: WebSocket 实时推送
 app.include_router(ws_router, tags=["WebSocket"])
