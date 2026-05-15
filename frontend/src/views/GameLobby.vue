@@ -16,6 +16,7 @@ import { GameStatus } from '../types/enums'
 const emit = defineEmits<{
   (e: 'enterGame', gameId: string): void
   (e: 'viewReport', gameId: string): void
+  (e: 'viewReplay', gameId: string): void
 }>()
 
 const store = useGameStore()
@@ -90,6 +91,16 @@ function handleViewReport(gameId: string): void {
   emit('viewReport', gameId)
 }
 
+/** 查看对局回放 */
+function handleViewReplayInput(): void {
+  if (!reportGameId.value.trim()) return
+  emit('viewReplay', reportGameId.value.trim())
+}
+
+function handleViewReplay(gameId: string): void {
+  emit('viewReplay', gameId)
+}
+
 onMounted(() => {
   loadGameList()
 })
@@ -142,10 +153,10 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 查看复盘 -->
+      <!-- 查看复盘与回放 -->
       <div class="lobby-card">
-        <h2>查看复盘</h2>
-        <p class="card-desc">输入已结束的对局 ID 查看五维评分与复盘报告。</p>
+        <h2>查看复盘与回放</h2>
+        <p class="card-desc">输入已结束的对局 ID 查看五维评分或对局回放。</p>
         <div class="join-row">
           <input
             v-model="reportGameId"
@@ -158,7 +169,14 @@ onMounted(() => {
             :disabled="lobbyState !== 'idle' || !reportGameId.trim()"
             @click="handleViewReportInput"
           >
-            查看
+            报告
+          </button>
+          <button
+            class="btn"
+            :disabled="lobbyState !== 'idle' || !reportGameId.trim()"
+            @click="handleViewReplayInput"
+          >
+            回放
           </button>
         </div>
       </div>
@@ -189,7 +207,14 @@ onMounted(() => {
             class="btn btn--small"
             @click="handleViewReport(game.game_id)"
           >
-            复盘
+            报告
+          </button>
+          <button
+            v-if="game.status === 'FINISHED' || game.status === 'ABORTED'"
+            class="btn btn--small"
+            @click="handleViewReplay(game.game_id)"
+          >
+            回放
           </button>
         </div>
       </div>

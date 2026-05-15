@@ -178,6 +178,38 @@ export interface MatchReportResponse {
 }
 
 // ============================================================================
+// 回放系统
+// ============================================================================
+
+export interface ReplayPlayerInfo {
+  agent_id: string
+  seat_number: number
+  role: string
+}
+
+export interface ReplayInitialState {
+  players: ReplayPlayerInfo[]
+}
+
+export interface ReplayPhaseChunk {
+  phase_name: string
+  events: EventResponse[]
+}
+
+export interface ReplayDayChunk {
+  day_num: number
+  phases: ReplayPhaseChunk[]
+}
+
+export interface ReplayResponse {
+  game_id: string
+  perspective: string
+  agent_id?: string
+  initial_state: ReplayInitialState
+  timeline: ReplayDayChunk[]
+}
+
+// ============================================================================
 // 通用
 // ============================================================================
 

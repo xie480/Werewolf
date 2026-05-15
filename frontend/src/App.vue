@@ -12,9 +12,10 @@ import GameLobby from './views/GameLobby.vue'
 import GameBoard from './views/GameBoard.vue'
 import ModelManagementView from './views/ModelManagementView.vue'
 import MatchReportView from './views/MatchReportView.vue'
+import ReplayView from './views/ReplayView.vue'
 
-/** 当前视图: 'lobby' | 'game' | 'models' | 'report' */
-const currentView = ref<'lobby' | 'game' | 'models' | 'report'>('lobby')
+/** 当前视图: 'lobby' | 'game' | 'models' | 'report' | 'replay' */
+const currentView = ref<'lobby' | 'game' | 'models' | 'report' | 'replay'>('lobby')
 
 /** 当前进入的对局 ID */
 const activeGameId = ref<string>('')
@@ -29,6 +30,12 @@ function handleEnterGame(gameId: string): void {
 function handleViewReport(gameId: string): void {
   activeGameId.value = gameId
   currentView.value = 'report'
+}
+
+/** 查看对局回放 */
+function handleViewReplay(gameId: string): void {
+  activeGameId.value = gameId
+  currentView.value = 'replay'
 }
 
 /** 返回大厅 */
@@ -60,6 +67,7 @@ function handleBackToLobby(): void {
     v-if="currentView === 'lobby'"
     @enter-game="handleEnterGame"
     @view-report="handleViewReport"
+    @view-replay="handleViewReplay"
   />
   <GameBoard
     v-else-if="currentView === 'game'"
@@ -71,6 +79,11 @@ function handleBackToLobby(): void {
   />
   <MatchReportView
     v-else-if="currentView === 'report'"
+    :game-id="activeGameId"
+    @back="handleBackToLobby"
+  />
+  <ReplayView
+    v-else-if="currentView === 'replay'"
     :game-id="activeGameId"
     @back="handleBackToLobby"
   />
