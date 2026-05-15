@@ -98,7 +98,6 @@
 </template>
 
 <script setup lang="ts">
-import { defineProps, defineEmits } from 'vue';
 import { Edit2, Trash2, Activity, Loader2, Database } from 'lucide-vue-next';
 import type { ModelConfigResponse, TestStatus } from '../../types/models';
 
@@ -157,9 +156,14 @@ const handleTest = (modelId: string) => {
 
 <style scoped>
 .model-list {
-  @apply w-full;
+  width: 100%;
 }
 .loading-state, .empty-state {
-  @apply flex flex-col items-center justify-center py-20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 5rem;
+  padding-bottom: 5rem;
 }
 </style>
