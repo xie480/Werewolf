@@ -11,9 +11,10 @@ import { ref } from 'vue'
 import GameLobby from './views/GameLobby.vue'
 import GameBoard from './views/GameBoard.vue'
 import ModelManagementView from './views/ModelManagementView.vue'
+import MatchReportView from './views/MatchReportView.vue'
 
-/** 当前视图: 'lobby' | 'game' | 'models' */
-const currentView = ref<'lobby' | 'game' | 'models'>('lobby')
+/** 当前视图: 'lobby' | 'game' | 'models' | 'report' */
+const currentView = ref<'lobby' | 'game' | 'models' | 'report'>('lobby')
 
 /** 当前进入的对局 ID */
 const activeGameId = ref<string>('')
@@ -24,8 +25,14 @@ function handleEnterGame(gameId: string): void {
   currentView.value = 'game'
 }
 
-/** 从对局返回大厅 */
-function handleLeaveGame(): void {
+/** 查看复盘报告 */
+function handleViewReport(gameId: string): void {
+  activeGameId.value = gameId
+  currentView.value = 'report'
+}
+
+/** 返回大厅 */
+function handleBackToLobby(): void {
   currentView.value = 'lobby'
   activeGameId.value = ''
 }
@@ -52,14 +59,20 @@ function handleLeaveGame(): void {
   <GameLobby
     v-if="currentView === 'lobby'"
     @enter-game="handleEnterGame"
+    @view-report="handleViewReport"
   />
   <GameBoard
     v-else-if="currentView === 'game'"
     :game-id="activeGameId"
-    @leave="handleLeaveGame"
+    @leave="handleBackToLobby"
   />
   <ModelManagementView
     v-else-if="currentView === 'models'"
+  />
+  <MatchReportView
+    v-else-if="currentView === 'report'"
+    :game-id="activeGameId"
+    @back="handleBackToLobby"
   />
 </template>
 

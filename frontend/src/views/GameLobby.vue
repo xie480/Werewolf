@@ -15,6 +15,7 @@ import { GameStatus } from '../types/enums'
 
 const emit = defineEmits<{
   (e: 'enterGame', gameId: string): void
+  (e: 'viewReport', gameId: string): void
 }>()
 
 const store = useGameStore()
@@ -24,6 +25,9 @@ const lobbyState = ref<'idle' | 'creating' | 'joining'>('idle')
 
 /** 加入对局输入框 */
 const joinGameId = ref('')
+
+/** 查看复盘输入框 */
+const reportGameId = ref('')
 
 /** 对局列表 */
 interface GameListItem {
@@ -74,6 +78,16 @@ async function handleJoin(): Promise<void> {
 /** 进入已有对局（从列表） */
 function handleEnterGame(gameId: string): void {
   emit('enterGame', gameId)
+}
+
+/** 查看复盘报告 */
+function handleViewReportInput(): void {
+  if (!reportGameId.value.trim()) return
+  emit('viewReport', reportGameId.value.trim())
+}
+
+function handleViewReport(gameId: string): void {
+  emit('viewReport', gameId)
 }
 
 onMounted(() => {
@@ -127,6 +141,27 @@ onMounted(() => {
           </button>
         </div>
       </div>
+
+      <!-- 查看复盘 -->
+      <div class="lobby-card">
+        <h2>查看复盘</h2>
+        <p class="card-desc">输入已结束的对局 ID 查看五维评分与复盘报告。</p>
+        <div class="join-row">
+          <input
+            v-model="reportGameId"
+            class="join-input"
+            placeholder="输入对局 ID"
+            :disabled="lobbyState !== 'idle'"
+          />
+          <button
+            class="btn"
+            :disabled="lobbyState !== 'idle' || !reportGameId.trim()"
+            @click="handleViewReportInput"
+          >
+            查看
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- 对局列表 -->
@@ -148,6 +183,13 @@ onMounted(() => {
             @click="handleEnterGame(game.game_id)"
           >
             进入
+          </button>
+          <button
+            v-if="game.status === 'FINISHED' || game.status === 'ABORTED'"
+            class="btn btn--small"
+            @click="handleViewReport(game.game_id)"
+          >
+            复盘
           </button>
         </div>
       </div>

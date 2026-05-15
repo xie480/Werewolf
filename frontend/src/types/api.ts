@@ -149,6 +149,35 @@ export interface ActionResponse {
 
 
 // ============================================================================
+// 评测复盘
+// ============================================================================
+
+export interface AgentEvaluationResponse {
+  player_id: string
+  role: string
+  rule_compliance_score: number
+  logical_consistency_score: number
+  roleplay_score: number
+  deception_score: number | null
+  god_deduction_score: number | null
+  situational_awareness_score: number | null
+  leadership_score: number | null
+  strengths: string | null
+  weaknesses: string | null
+  overall_review: string | null
+}
+
+export interface MatchReportResponse {
+  report_id: string
+  game_id: string
+  duration_seconds: number
+  winner: string
+  mvp_agent_id: string
+  faction_win_probability_curve?: Record<number, number>
+  evaluations: AgentEvaluationResponse[]
+}
+
+// ============================================================================
 // 通用
 // ============================================================================
 
