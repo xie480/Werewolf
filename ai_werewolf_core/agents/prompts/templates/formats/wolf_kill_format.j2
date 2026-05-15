@@ -1,0 +1,17 @@
+【当前阶段行动指南】
+当前是狼人行动阶段，请选择你们的击杀目标。
+
+【输出格式要求】
+你必须且只能输出一个合法的 JSON 对象，严格遵循以下 Schema：
+{
+  "internal_monologue": "string (请严格按照【思考链 (CoT) 指引】中的步骤，输出你的内心推理过程。这部分不会公开)",
+  
+  "suspect_list": {"玩家ID": float (0.0到1.0之间的神职嫌疑度/击杀价值，请评估场上所有存活玩家)},
+
+  "action_type": "string (必须是以下之一: {{ allowed_actions | join(', ') }})",
+  "action_target": "string (你要击杀的目标玩家ID。如果决定空刀，请将 action_type 设为 {{ ActionType.PASS.value }}，action_target 设为 null)"
+}
+
+【注意事项】
+1. 你的输出必须是纯 JSON 格式，不要包含任何 Markdown 代码块标记（如 ```json）。
+2. 确保 JSON 格式完全合法，不要有多余的逗号。

@@ -44,7 +44,7 @@ class MemoryCompressionService:
         events_text = "\n".join([e.description for e in events])
         from ai_werewolf_core.agents.prompts.builder import PromptBuilder
         builder = PromptBuilder()
-        template = builder.env.get_template("compression.j2")
+        template = builder.env.get_template("memory/compression.j2")
         full_prompt = template.render(round_num=round_num, events_text=events_text)
         
         # 2. 调用适配器
@@ -127,7 +127,7 @@ class MemoryCompressionService:
         reasoning_text = "\n".join(reasoning)
         from ai_werewolf_core.agents.prompts.builder import PromptBuilder
         builder = PromptBuilder()
-        template = builder.env.get_template("compress_reasoning.j2")
+        template = builder.env.get_template("memory/compress_reasoning.j2")
         full_prompt = template.render(round_num=round_num, reasoning_text=reasoning_text)
         
         # 使用适配器模式调用压缩模型进行推理压缩
@@ -208,7 +208,7 @@ class MemoryCompressionService:
             # 使用模板构建器加载merge_summary.j2模板，并用当前摘要、新信息和轮次号渲染
             from ai_werewolf_core.agents.prompts.builder import PromptBuilder
             builder = PromptBuilder()
-            template = builder.env.get_template("merge_summary.j2")
+            template = builder.env.get_template("memory/merge_summary.j2")
             full_prompt = template.render(current_summary=current_summary, new_info=new_info, round_num=round_num)
             
             try:
@@ -266,7 +266,7 @@ class MemoryCompressionService:
         """
         from ai_werewolf_core.agents.prompts.builder import PromptBuilder
         builder = PromptBuilder()
-        template = builder.env.get_template("extreme_compress.j2")
+        template = builder.env.get_template("memory/extreme_compress.j2")
         # 使用模板渲染压缩提示词
         full_prompt = template.render(current_summary=current_summary)
         

@@ -16,10 +16,6 @@
 【输出内容规划】：确定最终要向系统提交的查验目标玩家ID，绝不泄露多余的思考过程。
 </thought>
 
-【当前阶段行动指南】
-当前是夜间阶段。
-如果是 NIGHT_SEER_ACT 阶段，请在 action_type 输出 SKILL_SEER_CHECK，并在 action_target 输出你要查验的玩家ID。
-如果是其他夜间阶段，请在 action_type 输出 PASS，action_target 输出 null。
 {% elif current_phase == 'DAY_DISCUSSION' %}
 <thought>
 【局势回顾与信息提取】：获取昨夜的死讯，接收系统反馈的昨夜查验结果（查杀或金水），梳理今天前面玩家的发言，特别是是否有狼人悍跳预言家。
@@ -29,9 +25,6 @@
 【输出内容规划】：规划发言内容，必须清晰报出昨晚的查验结果，给出验人心路历程，安排今晚的警徽流，并号召好人跟随自己投票。
 </thought>
 
-【当前阶段行动指南】
-当前是白天发言阶段。
-请在 action_type 输出 SPEAK，并在 speech_content 中输出你的发言内容，action_target 输出 null。
 {% elif current_phase == 'DAY_VOTE' %}
 <thought>
 【局势回顾与信息提取】：回顾全场发言，确认有多少玩家相信自己的预言家身份，有多少玩家站边了悍跳狼。
@@ -41,9 +34,6 @@
 【输出内容规划】：确定最终的投票目标，确保投票行为与自己的发言逻辑绝对一致。
 </thought>
 
-【当前阶段行动指南】
-当前是白天投票阶段。
-请在 action_type 输出 VOTE，并在 action_target 输出你要投票的玩家ID。如果你决定弃权，请在 action_target 输出 null。
 {% elif current_phase in ['DAY_PK_DISCUSSION', 'DAY_PK_VOTE'] %}
 <thought>
 【局势回顾与信息提取】：确认PK台上的玩家，分析导致平票的票型分布，找出是哪些玩家在关键时刻分票或倒戈。
@@ -53,10 +43,6 @@
 【输出内容规划】：规划PK阶段的发言要点，力求简明扼要、直击要害，并确定最终的投票目标。
 </thought>
 
-【当前阶段行动指南】
-当前是PK阶段。
-如果是 DAY_PK_DISCUSSION 阶段，请在 action_type 输出 SPEAK，并在 speech_content 中输出你的发言内容。
-如果是 DAY_PK_VOTE 阶段，请在 action_type 输出 VOTE，并在 action_target 输出你要投票的玩家ID（只能投给PK台上的玩家）。
 {% elif current_phase == 'LAST_WORDS' %}
 <thought>
 【局势回顾与信息提取】：确认自己已被放逐或被击杀出局，回顾导致自己出局的最终票型或夜间情况。
@@ -66,7 +52,4 @@
 【输出内容规划】：规划遗言内容，语气需真诚且带有警示意味，明确指出必须放逐的狼人目标，绝不放弃对好人阵营的最后指引。
 </thought>
 
-【当前阶段行动指南】
-当前是遗言阶段。
-请在 action_type 输出 SPEAK，并在 speech_content 中输出你的遗言内容。
 {% endif %}
