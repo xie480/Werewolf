@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     crypto_key: str = "default-dev-crypto-key-change-in-prod"
     
     # 数据库配置 (Postgres)
-    pg_host: str = "192.168.100.128"
+    pg_host: str = "127.0.0.1"
     pg_port: int = 5432
     pg_user: str = ""
     pg_password: str = ""
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{self.pg_user}:{self.pg_password}@{self.pg_host}:{self.pg_port}/{self.pg_database}"
     
     # Redis 配置
-    redis_host: str = "192.168.100.128"
+    redis_host: str = "127.0.0.1"
     redis_port: int = 6379
     redis_db: int = 1
     redis_max_connections: int = 300

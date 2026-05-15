@@ -42,6 +42,16 @@ class RedisKeys:
     COMPRESSED_MEMORY_SUMMARY_PREFIX: str = "werewolf:memory:compressed_summary"
     """压缩记忆摘要 Key 前缀。完整格式: werewolf:memory:compressed_summary:{game_id}"""
 
+    # 新增常量
+    PRIVATE_MEMORY_STATE_FIELD: str = "state"
+    """私有记忆 Hash 中的 state 字段名"""
+
+    COMPRESSED_REASONING_PREFIX: str = "werewolf:memory:compressed_reasoning"
+    """单轮压缩推理 Hash Key 前缀。完整格式: werewolf:memory:compressed_reasoning:{game_id}:{agent_id}"""
+
+    GLOBAL_SUMMARY_PREFIX: str = "werewolf:memory:global_summary"
+    """全局长期摘要 String Key 前缀。完整格式: werewolf:memory:global_summary:{game_id}:{agent_id}"""
+
     # ------------------------------------------------------------------
     # Key 构建静态方法
     # ------------------------------------------------------------------
@@ -144,16 +154,16 @@ class RedisKeys:
 
     @staticmethod
     def compressed_reasoning(game_id: str, agent_id: str) -> str:
-        """构建单轮压缩推理 Hash Key: werewolf:game:{game_id}:agent:{agent_id}:compressed_reasoning
+        """构建单轮压缩推理 Hash Key: werewolf:memory:compressed_reasoning:{game_id}:{agent_id}
         存储结构: Hash
         内容结构: Field 为 round_num, Value 为压缩后的推理文本
         """
-        return f"werewolf:game:{game_id}:agent:{agent_id}:compressed_reasoning"
+        return f"{RedisKeys.COMPRESSED_REASONING_PREFIX}:{game_id}:{agent_id}"
 
     @staticmethod
     def global_summary(game_id: str, agent_id: str) -> str:
-        """构建全局长期摘要 String Key: werewolf:game:{game_id}:agent:{agent_id}:global_summary
+        """构建全局长期摘要 String Key: werewolf:memory:global_summary:{game_id}:{agent_id}
         存储结构: String
         内容结构: 纯文本字符串
         """
-        return f"werewolf:game:{game_id}:agent:{agent_id}:global_summary"
+        return f"{RedisKeys.GLOBAL_SUMMARY_PREFIX}:{game_id}:{agent_id}"

@@ -81,7 +81,7 @@ class PrivateMemoryManager:
         await redis.delete(reasoning_key)
         
         # 保存基础状态
-        await redis.hset(key, RedisKeys.PRIVATE_MEMORY_STATE_FIELD, state.model_dump_json())
+        await redis.hset(key, "state", state.model_dump_json())
             
         logger.debug("私有记忆已初始化", game_id=game_id, player_id=player_id)
 

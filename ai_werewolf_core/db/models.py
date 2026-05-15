@@ -72,7 +72,7 @@ class PlayerRecord(Base):
         String(19), primary_key=True, index=True, comment="雪花算法全局唯一ID"
     )
     game_id: Mapped[str] = mapped_column(
-        String(36),
+        String(19),
         ForeignKey("games.id", ondelete="CASCADE"),
         index=True,
         comment="所属对局ID",
@@ -119,7 +119,7 @@ class EventRecord(Base):
         String(64), unique=True, index=True, comment="事件业务ID"
     )
     game_id: Mapped[str] = mapped_column(
-        String(36),
+        String(19),
         ForeignKey("games.id", ondelete="CASCADE"),
         index=True,
         comment="所属对局ID",

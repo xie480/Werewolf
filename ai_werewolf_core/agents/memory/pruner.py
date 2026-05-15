@@ -50,4 +50,25 @@ class MemoryPruner:
         保留兼容旧接口，但实际压缩逻辑已移至异步预归档任务中。
         这里仅做简单的 Token 检查，如果超限则截断。
         """
-        return round_memories
+        if not round_memories:
+            return []
+            
+        result = []
+        current_tokens = 0
+        
+        # 从后往前遍历（保留最新的记忆），超限时截断早期轮次
+        for rm in reversed(round_memories):
+            try:
+                text_content = rm.model_dump_json()
+            except Exception:
+                text_content = str(rm)
+            tokens = self.count_tokens(text_content)
+            
+            if current_tokens + tokens > max_tokens:
+                logger.warning(f"记忆超限，截断早期轮次: {rm.round_num}", game_id=game_id)
+                break
+                
+            current_tokens += tokens
+            result.insert(0, rm)
+            
+        return result

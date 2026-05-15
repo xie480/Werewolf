@@ -110,8 +110,9 @@ class PublicMemoryManager:
                 except (ValueError, json.JSONDecodeError):
                     continue
                     
-        # 2. 获取未压缩的近期记忆
-        all_round_memories = await self.fetch_round_memories(game_id)
+        # 2. 获取未压缩的近期记忆  TODO 我觉得这段效率太低了
+        all_round_memories = await self.fetch_round_memories(game_id, max_events=999999)
+        # 使用大 max_events 确保能拉取到所有事件，避免因默认 100 条限制导致丢失最新记忆
         recent_memories = [rm for rm in all_round_memories if rm.round_num > max_compressed_round]
         
         return {
