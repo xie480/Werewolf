@@ -116,9 +116,9 @@ class DataExtractor:
                         
             elif event.event_type == EventType.PLAYER_DEATH:
                 # 记录夜晚击杀 (仅记录狼人杀害的，用于评估狼人找神能力)
-                # 死亡事件的 payload 中包含 reason 字段
-                reason = payload.get("reason")
-                if reason == ActionType.WOLF_KILL:
+                # 死亡事件的 payload 中包含 death_reason 字段，其值为 ActionType 枚举的字符串形式
+                reason = payload.get("death_reason")
+                if reason == ActionType.WOLF_KILL.value:
                     dead_player = payload.get("player_id")
                     if dead_player:
                         night_kills[current_round] = dead_player
@@ -173,25 +173,11 @@ class DataExtractor:
             
             for round_num, data in round_data.items():
                 reasoning_list = data.get("reasoning", [])
+                
+                # TODO: 目前 reasoning 中存储的是自然语言，无法直接解析出 suspect_heatmap。
+                # 需要在 Agent Runtime 阶段，强制 Agent 在每轮结束时输出结构化的 suspect_list 并单独存储。
+                # 此处暂时使用空字典占位。
                 suspect_heatmap = {}
-                
-                # 尝试从 reasoning 中解析出 suspect_heatmap
-                # 假设 Agent 在每轮的最后一次 reasoning 中包含了 suspect_list 的 JSON 字符串
-                for reasoning_str in reversed(reasoning_list):
-                    try:
-                        # 尝试寻找 JSON 格式的 suspect_list
-                        # 这里假设 reasoning_str 中可能包含类似 {"suspect_list": {"player_1": 0.8}} 的结构
-                        # 或者直接就是一个包含 suspect_list 的 JSON
-                        parsed = json.loads(reasoning_str)
-                        if isinstance(parsed, dict) and "suspect_list" in parsed:
-                            suspect_heatmap = parsed["suspect_list"]
-                            break
-                    except json.JSONDecodeError:
-                        continue
-                
-                # 如果没有解析出来，尝试获取最新的作为 fallback
-                if not suspect_heatmap:
-                    suspect_heatmap = await self.private_memory.get_last_suspect_list(game_id, player_id)
                 
                 monologues.append(AgentInternalMonologue(
                     round_num=round_num,

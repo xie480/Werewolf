@@ -96,11 +96,15 @@ class LLMJudge:
         # 格式化夜晚击杀记录 (用于狼人找神能力评估)
         night_kills_str = json.dumps(data.night_kills, ensure_ascii=False)
         
+        # 格式化全局投票记录 (用于好人统帅与引导能力评估)
+        vote_records_str = json.dumps(data.vote_records, ensure_ascii=False, indent=2)
+        
         return PromptBuilder.build(
             "eval_judge",
             player_id=player_id,
             global_roles_str=global_roles_str,
             night_kills_str=night_kills_str,
+            vote_records_str=vote_records_str,
             role=role.value if role else '未知',
             faction=faction.value if faction else '未知',
             action_logs_str=action_logs_str,
