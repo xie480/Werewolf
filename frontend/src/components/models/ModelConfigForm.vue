@@ -26,7 +26,7 @@
                 type="text" 
                 required
                 :disabled="isEdit"
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 sm:text-sm"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 text-gray-900 sm:text-sm"
                 placeholder="例如: gpt-4-default"
               />
               <p v-if="isEdit" class="mt-1 text-xs text-gray-500">编辑模式下不可修改 ID</p>

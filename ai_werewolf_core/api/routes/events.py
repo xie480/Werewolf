@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ai_werewolf_core.core.event.bus import EventBus
+from ai_werewolf_core.core.event.bus import EventBus, event_bus
 from ai_werewolf_core.schemas.api import EventListResponse, EventResponse
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
@@ -51,8 +51,7 @@ async def list_events(
         500: 内部错误。
     """
     try:
-        event_bus = EventBus()
-        # 使用空 agent_id 表示查询所有 PUBLIC 事件（无权限过滤）
+        # 使用全局单例 event_bus
         events = await event_bus.get_events(
             game_id=game_id,
             agent_id="",  # 空字符串 → 仅返回 PUBLIC 事件

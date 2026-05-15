@@ -17,6 +17,7 @@ const emit = defineEmits<{
   (e: 'enterGame', gameId: string): void
   (e: 'viewReport', gameId: string): void
   (e: 'viewReplay', gameId: string): void
+  (e: 'goToSetup'): void
 }>()
 
 const store = useGameStore()
@@ -53,15 +54,9 @@ async function loadGameList(): Promise<void> {
   }
 }
 
-/** 创建并进入对局 */
-async function handleCreate(): Promise<void> {
-  lobbyState.value = 'creating'
-  try {
-    const gameId = await store.createAndStart(9)
-    emit('enterGame', gameId)
-  } finally {
-    lobbyState.value = 'idle'
-  }
+/** 进入座位表准备界面 */
+function handleCreate(): void {
+  emit('goToSetup')
 }
 
 /** 加入已有对局 */
@@ -279,7 +274,7 @@ onMounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
   padding: 28px;
-  width: 360px;
+  width: 400px;
   backdrop-filter: blur(12px);
 }
 

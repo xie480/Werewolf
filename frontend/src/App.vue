@@ -10,18 +10,30 @@
 import { ref } from 'vue'
 import GameLobby from './views/GameLobby.vue'
 import GameBoard from './views/GameBoard.vue'
+import GameSetupView from './views/GameSetupView.vue'
 import ModelManagementView from './views/ModelManagementView.vue'
 import MatchReportView from './views/MatchReportView.vue'
 import ReplayView from './views/ReplayView.vue'
 
-/** 当前视图: 'lobby' | 'game' | 'models' | 'report' | 'replay' */
-const currentView = ref<'lobby' | 'game' | 'models' | 'report' | 'replay'>('lobby')
+/** 当前视图: 'lobby' | 'setup' | 'game' | 'models' | 'report' | 'replay' */
+const currentView = ref<'lobby' | 'setup' | 'game' | 'models' | 'report' | 'replay'>('lobby')
 
 /** 当前进入的对局 ID */
 const activeGameId = ref<string>('')
 
+/** 进入座位表准备界面 */
+function handleGoToSetup(): void {
+  currentView.value = 'setup'
+}
+
 /** 从大厅进入对局 */
 function handleEnterGame(gameId: string): void {
+  activeGameId.value = gameId
+  currentView.value = 'game'
+}
+
+/** 从座位表进入对局 */
+function handleStartFromSetup(gameId: string): void {
   activeGameId.value = gameId
   currentView.value = 'game'
 }
@@ -46,7 +58,7 @@ function handleBackToLobby(): void {
 </script>
 
 <template>
-  <div v-if="currentView === 'lobby' || currentView === 'models'" class="absolute top-4 right-4 z-50 flex gap-2">
+  <div v-if="currentView === 'lobby' || currentView === 'models' || currentView === 'setup'" class="absolute top-4 right-4 z-50 flex gap-2">
     <button
       v-if="currentView === 'lobby'"
       @click="currentView = 'models'"
@@ -68,6 +80,12 @@ function handleBackToLobby(): void {
     @enter-game="handleEnterGame"
     @view-report="handleViewReport"
     @view-replay="handleViewReplay"
+    @go-to-setup="handleGoToSetup"
+  />
+  <GameSetupView
+    v-else-if="currentView === 'setup'"
+    @start-game="handleStartFromSetup"
+    @back="handleBackToLobby"
   />
   <GameBoard
     v-else-if="currentView === 'game'"

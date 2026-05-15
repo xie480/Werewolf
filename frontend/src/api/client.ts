@@ -189,6 +189,25 @@ export async function apiPostQuery<T>(
 }
 
 /**
+ * 发送 PUT 请求并解析 JSON 响应体。
+ *
+ * @param path API 路径
+ * @param body 请求体对象
+ * @returns 解析后的 JSON 响应体
+ * @throws ApiError 请求失败时抛出
+ */
+export async function apiPut<T>(
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const response = await fetchWithTimeout(`${API_BASE}${path}`, {
+    method: 'PUT',
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  return response.json() as Promise<T>
+}
+
+/**
  * 发送 DELETE 请求并解析 JSON 响应体。
  *
  * @param path API 路径

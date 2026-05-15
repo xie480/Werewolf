@@ -23,7 +23,7 @@ from ai_werewolf_core.core.engine.lifecycle import LifecycleManager
 from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
 from ai_werewolf_core.core.engine.resolver import ActionResolver
 from ai_werewolf_core.core.engine.vote_manager import VoteManager
-from ai_werewolf_core.core.event.bus import EventBus
+from ai_werewolf_core.core.event.bus import event_bus, EventBus
 from ai_werewolf_core.schemas.api import (
     ActionResponse,
     SubmitActionRequest,
@@ -120,7 +120,7 @@ async def submit_action_internal(game_id: str, action: AgentAction) -> InternalS
             - success (bool): 操作是否成功
             - message (str): 执行结果的描述信息
     """
-    event_bus = EventBus()
+    # use global event_bus
     try:
         # 获取当前游戏阶段
         current_phase = await _get_current_phase(game_id, event_bus)
@@ -206,7 +206,7 @@ async def submit_vote(game_id: str, request: SubmitVoteRequest) -> ActionRespons
         422: 对局不在 RUNNING 状态。
         503: Redis 不可用。
     """
-    event_bus = EventBus()
+    # use global event_bus
     try:
         # 校验对局状态和阶段
         current_phase = await _get_current_phase(game_id, event_bus)
@@ -272,7 +272,7 @@ async def get_vote_status(game_id: str, round_num: Optional[int] = None) -> Vote
         503: Redis 不可用。
     """
     try:
-        event_bus = EventBus()
+        # use global event_bus
         if round_num is None:
             round_num = await _get_round(game_id, event_bus)
 
@@ -321,7 +321,7 @@ async def submit_speech(game_id: str, request: SubmitSpeechRequest) -> ActionRes
         422: 对局不在 RUNNING 状态。
         503: Redis 不可用。
     """
-    event_bus = EventBus()
+    # use global event_bus
     try:
         # 校验对局状态和阶段
         current_phase = await _get_current_phase(game_id, event_bus)
@@ -406,7 +406,7 @@ async def submit_action(game_id: str, request: SubmitActionRequest) -> ActionRes
         422: 对局不在 RUNNING 状态。
         503: Redis 不可用。
     """
-    event_bus = EventBus()
+    # use global event_bus
     try:
         # 校验 action_type 合法性
         try:

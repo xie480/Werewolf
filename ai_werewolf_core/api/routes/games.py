@@ -22,7 +22,7 @@ from ai_werewolf_core.core.engine.exceptions import (
 )
 from ai_werewolf_core.core.engine.lifecycle import LifecycleManager
 from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
-from ai_werewolf_core.core.event.bus import EventBus
+from ai_werewolf_core.core.event.bus import event_bus
 from ai_werewolf_core.schemas.api import (
     CreateGameRequest,
     CreateGameResponse,
@@ -184,7 +184,6 @@ async def create_game(request: CreateGameRequest = CreateGameRequest()) -> Creat
     """
     try:
         game_id = get_snowflake().next_id()
-        event_bus = EventBus()
         manager = LifecycleManager(game_id, event_bus)
         await manager.init_game()
 
@@ -222,7 +221,6 @@ async def start_game(game_id: str) -> GameStatusResponse:
         500: 未知内部错误。
     """
     try:
-        event_bus = EventBus()
         manager = LifecycleManager(game_id, event_bus)
         await manager.start_game()
 
@@ -260,7 +258,6 @@ async def get_game(game_id: str) -> GameDetailResponse:
         500: 未知内部错误。
     """
     try:
-        event_bus = EventBus()
         manager = LifecycleManager(game_id, event_bus)
 
         status = await manager.get_status()
@@ -320,7 +317,6 @@ async def advance_phase(
     from ai_werewolf_core.schemas.enums import GamePhase
 
     try:
-        event_bus = EventBus()
         manager = LifecycleManager(game_id, event_bus)
 
         # 自动推导下一阶段
@@ -390,7 +386,6 @@ async def abort_game(game_id: str, reason: str = Query(default="unknown", descri
         500: 未知内部错误。
     """
     try:
-        event_bus = EventBus()
         manager = LifecycleManager(game_id, event_bus)
         await manager.abort_game(reason)
 
@@ -435,7 +430,6 @@ async def join_game(game_id: str) -> GameStatusResponse:
         503: Redis 不可用。
     """
     try:
-        event_bus = EventBus()
         manager = LifecycleManager(game_id, event_bus)
 
         status = await manager.get_status()
@@ -557,7 +551,6 @@ async def list_games() -> GameListResponse:
                 if len(key_parts) >= 3:
                     game_id = key_parts[2]
                     try:
-                        event_bus = EventBus()
                         manager = LifecycleManager(game_id, event_bus)
                         status = await manager.get_status()
                         phase = await manager.state_machine.get_current_phase()

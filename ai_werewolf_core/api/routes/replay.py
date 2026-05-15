@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ai_werewolf_core.core.event.bus import EventBus
+from ai_werewolf_core.core.event.bus import event_bus
 from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
 from ai_werewolf_core.schemas.api import (
     ReplayResponse,
@@ -86,8 +86,7 @@ async def get_game_replay(
         
         initial_state = ReplayInitialState(players=replay_players)
 
-        # 2. 获取事件流
-        event_bus = EventBus()
+        # 2. 获取事件流（使用全局单例）
         # 拉取全量事件，count 设为一个足够大的值（如 10000）
         events = await event_bus.get_events(
             game_id=game_id,

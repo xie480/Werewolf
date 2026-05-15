@@ -315,10 +315,10 @@ export const useGameStore = defineStore('game', () => {
     }))
   }
 
-  /** 增��加载事件（从 lastSeqNum+1 开始） */
+  /** 增量加载事件（从 lastSeqNum+1 开始） */
   async function loadEvents(): Promise<void> {
     if (!gameId.value) return
-    let sinceSeq = lastSeqNum.value
+    let sinceSeq = lastSeqNum.value + 1
     let hasMore = true
 
     while (hasMore) {
