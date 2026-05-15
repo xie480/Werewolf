@@ -46,10 +46,10 @@
 *   **计算方式**：对比 Agent 每轮结束时的 `suspect_heatmap`（嫌疑人名单）与上帝视角的“真实狼人名单”的重合度（IoU 或精准率/召回率）。
 *   **数据来源**：Agent Private Memory + 全局真实身份数据。
 
-#### 2.7 统帅与引导 (Leadership) - 客观+主观/数据统计+LLM
+#### 2.7 统帅与引导 (Leadership) - 主观/LLM 裁判打分
 *   **定义**：评估好人玩家的发言能有多少人跟票/认同，是否能在关键时候站出来引导好人阵营。
-*   **计算方式**：客观统计跟票率（号召票出 X，后续多少人跟票），结合 LLM 裁判评估其在关键轮次（如真假预言家对跳）的引导作用。
-*   **数据来源**：发言语义提取（目标提取） + 投票事件记录 + LLM 裁判分析。
+*   **计算方式**：由 LLM 裁判结合全局投票记录和玩家发言进行主观打分。跟票人数越多、在关键轮次（如真假预言家对跳）引导好人阵营的作用越大，得分越高。
+*   **数据来源**：全局发言记录 + 全局投票记录。
 
 ## 3. 评测管线架构 (Evaluation Pipeline)
 
@@ -63,10 +63,10 @@
     *   从 `EventRecord` 表拉取本局完整时间线事件。
     *   从 Redis 或 DB 提取各 Agent 的内部心路历程（Belief States, 思考过程）。
 2.  **Rule-based Scoring (规则打分)**：
-    *   通过 Python 脚本计算“规则服从度”、“煽动与说服力”、“态势感知与推理”等客观指标。
+    *   通过 Python 脚本计算“规则服从度”、“逻辑连贯性”、“态势感知与推理”等客观指标。
 3.  **LLM-as-a-Judge (大模型裁判)**：
-    *   组装 Prompt，包含上帝视角数据、玩家发言与内部思维。
-    *   调用独立的法官模型（建议使用成本较低但逻辑能力尚可的模型，如 `gpt-4o-mini` 或 `deepseek-chat`）进行质性分析与主观打分（伪装度、逻辑连贯性）。
+    *   使用 `ai_werewolf_core/agents/prompts/templates/eval_judge.j2` 模板组装 Prompt，包含上帝视角数据、玩家发言、投票记录与内部思维。
+    *   调用独立的法官模型（在 `config.py` 中配置 `eval_model_name` 等参数，建议使用成本较低但逻辑能力尚可的模型，如 `gpt-4o-mini` 或 `deepseek-chat`）进行质性分析与主观打分（角色扮演、伪装度、找神能力、统帅与引导）。
 4.  **Report Generation (报告生成)**：
     *   汇总客观与主观得分，生成结构化复盘日志（JSON）。
     *   持久化到数据库。
@@ -81,7 +81,6 @@
 *   `duration_seconds`: 对局时长
 *   `winner`: 获胜阵营
 *   `mvp_agent_id`: MVP 玩家 ID
-*   `faction_win_probability_curve`: 阵营胜率走势（JSONB，用于前端折线图）
 *   `created_at`: 生成时间
 
 ### 4.2 `AgentEvaluation` (玩家评测明细表)
@@ -102,61 +101,36 @@
 
 ## 5. 核心模块划分
 
-建议在 `ai_werewolf_core/core/` 下新增 `eval` 包：
+在 `ai_werewolf_core/core/` 下新增 `eval` 包，并将 Schema 统一放在 `ai_werewolf_core/schemas/` 下：
 
 ```text
-ai_werewolf_core/core/eval/
-├── __init__.py
-├── pipeline.py      # 评测管线主入口，串联各步骤
-├── extractor.py     # 数据抽取器，从 EventRecord 和 Memory 提取结构化数据
-├── heuristic.py     # 启发式规则评分器 (计算客观指标)
-├── llm_judge.py     # LLM 裁判调用器 (组装 Prompt，解析 JSON 结果)
-└── schemas.py       # 评测相关的 Pydantic 模型定义
+ai_werewolf_core/
+├── schemas/
+│   └── eval.py          # 评测相关的 Pydantic 模型定义
+├── core/eval/
+│   ├── __init__.py
+│   ├── pipeline.py      # 评测管线主入口，串联各步骤
+│   ├── extractor.py     # 数据抽取器，从 EventRecord 和 Memory 提取结构化数据
+│   ├── heuristic.py     # 启发式规则评分器 (计算客观指标)
+│   └── llm_judge.py     # LLM 裁判调用器 (组装 Prompt，解析 JSON 结果)
+└── agents/prompts/templates/
+    └── eval_judge.j2    # LLM 裁判的 Prompt 模板
 ```
 
 ## 6. LLM-as-a-Judge 核心 Prompt 设计
 
-```text
-【裁判任务说明】
-你是一个专业的狼人杀多智能体系统评测裁判。
-现在有一局游戏已经结束，请你根据以下提供的【上帝视角数据】和【该玩家的全部发言与内部思维】，对玩家 [{agent_id}] 进行行为评分与复盘分析。
+Prompt 模板统一维护在 `ai_werewolf_core/agents/prompts/templates/eval_judge.j2` 中，使用 Jinja2 语法进行渲染。核心内容包括：
 
-【评测原则】
-1. 请剥离上帝视角，仅根据该玩家当时能够获取的公开信息，评判其推理是否合理。哪怕他的结论是错的，只要当时逻辑自洽，就不应扣减逻辑推理分。
-2. 评分尺度：9-10分代表完美骗过所有人/找出所有狼；6-8分代表表现正常但无亮眼发挥；3-5分代表出现明显逻辑漏洞但未暴露；0-2分代表自爆或违规。
+*   **上帝视角数据**：全局真实身份、夜晚击杀记录（仅限狼人杀害）、全局投票记录。
+*   **被评测玩家数据**：底牌、阵营、关键行为日志（发言、投票、技能）、内部思维链。
+*   **评测原则**：剥离上帝视角、评分尺度说明、统帅与引导得分的特殊说明。
+*   **输出约束**：严格输出包含 `roleplay_score`, `deception_score`, `god_deduction_score`, `leadership_score`, `strengths`, `weaknesses`, `overall_review` 的 JSON。
 
-【上帝视角数据】
-{global_roles_json}
+## 7. 实施步骤 (已完成)
 
-【被评测玩家数据】
-该玩家底牌：{agent_role}
-该玩家所属阵营：{agent_faction}
-
-【该玩家的关键行为日志 (按时间线)】
-{agent_action_and_speech_logs}
-
-【该玩家的内部思维链 (Belief State)】
-{agent_internal_monologues}
-
-【评测任务约束】
-请你根据以上信息，严格输出一个 JSON 格式的评测报告。不要输出其他废话。
-JSON 结构如下：
-{{
-  "roleplay_score": 0-10, // 角色扮演得分（满分10，是否有出戏表现或AI特有的话术痕迹，通用）
-  "deception_score": 0-10, // 伪装与欺骗得分（满分10，狼人专属，好人填 null）
-  "god_deduction_score": 0-10, // 找神能力得分（满分10，狼人专属，基于击杀目标和推理OS，好人填 null）
-  "leadership_score": 0-10, // 统帅与引导得分（满分10，好人专属，关键时刻引导好人阵营的表现，狼人填 null）
-  "strengths": "简短的一句话总结他的高光时刻/优点",
-  "weaknesses": "简短的一句话总结他的致命失误/逻辑漏洞",
-  "overall_review": "一段100字左右的综合评价，用于展示在前端复盘大屏上。"
-}}
-```
-
-## 7. 实施步骤 (Todo List)
-
-1.  **数据库 Schema 更新**: 在 `docs/db/sql table.md` 中补充 `MatchReport` 和 `AgentEvaluation` 表定义，并在 `ai_werewolf_core/db/models.py` 中实现 ORM 模型，生成 Alembic 迁移脚本。
-2.  **数据抽取模块 (`extractor.py`)**: 实现从 `EventRecord` 提取对局时间线、玩家发言、投票记录及内部思维链的逻辑。
-3.  **启发式规则打分 (`heuristic.py`)**: 实现规则服从度、跟票率、找狼准确率等客观指标的计算逻辑。
-4.  **LLM 裁判模块 (`llm_judge.py`)**: 实现 Prompt 组装、调用 Model Adapter 获取评价并解析 JSON 的逻辑。
-5.  **评测管线整合 (`pipeline.py` & `eval.py`)**: 将上述模块串联，在 `evaluate_game_task` 中完整实现异步评测流程，并将结果落库。
-6.  **API 接口暴露**: 在 `ai_werewolf_core/api/routes/` 下新增接口，供前端查询对局复盘报告和雷达图数据。
+1.  [x] **数据库 Schema 更新**: 在 `docs/db/sql table.md` 中补充 `MatchReport` 和 `AgentEvaluation` 表定义，并在 `ai_werewolf_core/db/models.py` 中实现 ORM 模型，生成 Alembic 迁移脚本。
+2.  [x] **数据抽取模块 (`extractor.py`)**: 实现从 `EventRecord` 提取对局时间线、玩家发言、投票记录及内部思维链的逻辑。
+3.  [x] **启发式规则打分 (`heuristic.py`)**: 实现规则服从度、逻辑连贯性、找狼准确率等客观指标的计算逻辑。
+4.  [x] **LLM 裁判模块 (`llm_judge.py`)**: 实现 Prompt 组装、调用 Model Adapter 获取评价并解析 JSON 的逻辑。
+5.  [x] **评测管线整合 (`pipeline.py` & `eval.py`)**: 将上述模块串联，在 `evaluate_game_task` 中完整实现异步评测流程，并将结果落库。
+6.  [x] **API 接口暴露**: 在 `ai_werewolf_core/api/routes/` 下新增接口，供前端查询对局复盘报告和雷达图数据。
