@@ -63,6 +63,7 @@ class AgentAction(BaseModel):
     phase: GamePhase # 当前游戏阶段
     round: int # 当前轮次
     reason: str = "" # 行动理由
+    speech_content: Optional[str] = None # 发言内容（仅在 SPEAK 动作时有效）
     confidence: float = Field(0.0, ge=0.0, le=1.0) # 行动可信度
     timestamp: Optional[datetime] = None # 行动时间
 

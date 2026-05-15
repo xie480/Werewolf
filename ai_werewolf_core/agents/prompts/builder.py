@@ -6,21 +6,34 @@ from ai_werewolf_core.schemas.enums import Role
 class PromptBuilder:
     """Prompt 组装器，负责将 MemorySnapshot 转化为 LLM 可理解的 Prompt。"""
 
-    def __init__(self, template_dir: str = "ai_werewolf_core/agents/prompts/templates"):
-        self.template_dir = template_dir
+    def __init__(self, template_dir: str | None = None):
+        """Initialize the PromptBuilder.
+
+        Args:
+            template_dir: Optional directory containing Jinja2 templates. If omitted,
+                the directory is resolved relative to this file's location, ensuring
+                that template loading works regardless of the current working directory.
+        """
+        # Resolve the absolute path to the templates directory. This guards against
+        # failures when the process's working directory differs from the project root.
+        if template_dir is None:
+            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "templates"))
+        else:
+            base_dir = os.path.abspath(template_dir)
+        self.template_dir = base_dir
         # 初始化 Jinja2 环境
         self.env = Environment(
             loader=FileSystemLoader(self.template_dir),
             autoescape=select_autoescape(),
             trim_blocks=True,
-            lstrip_blocks=True
+            lstrip_blocks=True,
         )
 
     def _render_system(self, snapshot: MemorySnapshot, current_phase: str) -> str:
         """
         System Prompt：注入agentID，阵营，当前游戏阶段
         """
-        template = self.env.get_template("core/system.j2")
+        template = self.env.get_template("system.j2")
         return template.render(
             agent_id=snapshot.agent_id,
             faction=snapshot.private_state.faction.value,
@@ -43,7 +56,7 @@ class PromptBuilder:
         """
         注入历史信息，如系统反馈，公共时间线，历史内核，历史经验
         """
-        template = self.env.get_template("core/context.j2")
+        template = self.env.get_template("context.j2")
         
         # 根据 window_size 划分近期记忆和全局摘要
         current_round = snapshot.history[-1].round_num if snapshot.history else 1

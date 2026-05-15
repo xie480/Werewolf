@@ -31,8 +31,11 @@ from ai_werewolf_core.schemas.api import (
     SubmitVoteRequest,
     VoteStatusResponse,
 )
+from dataclasses import dataclass
+
 from ai_werewolf_core.schemas.enums import (
     ActionType,
+    Emotion,
     EventType,
     GamePhase,
     GameStatus,
@@ -92,6 +95,93 @@ async def _get_round(game_id: str, event_bus: EventBus) -> int:
     """
     manager = LifecycleManager(game_id, event_bus)
     return await manager.state_machine.get_round()
+
+
+@dataclass
+class InternalSubmitResult:
+    accepted: bool
+    reason: str = ""
+
+
+async def submit_action_internal(game_id: str, action: AgentAction) -> InternalSubmitResult:
+    """
+    内部提交动作接口，供 Agent 任务调用。
+    
+    该函数根据当前游戏阶段处理不同类型的动作，包括投票、发言和夜间技能等。
+    对于投票和发言，会验证当前阶段是否允许执行此类操作；
+    对于夜间技能，使用ActionResolver来处理。
+    
+    参数:
+        game_id (str): 游戏实例的唯一标识符
+        action (AgentAction): 代理执行的动作对象，包含动作类型、执行者ID、目标等信息
+        
+    返回:
+        InternalSubmitResult: 包含执行结果状态和消息的对象
+            - success (bool): 操作是否成功
+            - message (str): 执行结果的描述信息
+    """
+    event_bus = EventBus()
+    try:
+        # 获取当前游戏阶段
+        current_phase = await _get_current_phase(game_id, event_bus)
+        
+        if action.action_type == ActionType.VOTE:
+            # 验证当前阶段是否允许投票
+            if current_phase not in (GamePhase.DAY_VOTE, GamePhase.DAY_PK_VOTE):
+                return InternalSubmitResult(False, f"当前阶段 [{current_phase.value}] 不允许投票")
+            # 提交投票动作
+            vote_mgr = VoteManager(game_id, event_bus)
+            vote_mgr.begin_vote(action.round)
+            await vote_mgr.submit_vote(action, roles={}, current_phase=current_phase)
+            return InternalSubmitResult(True, "投票提交成功")
+            
+        elif action.action_type == ActionType.SPEAK:
+            # 验证当前阶段是否允许发言
+            speech_phases = (GamePhase.DAY_DISCUSSION, GamePhase.DAY_PK_DISCUSSION, GamePhase.LAST_WORDS)
+            if current_phase not in speech_phases:
+                return InternalSubmitResult(False, f"当前阶段 [{current_phase.value}] 不允许发言")
+            
+            # 创建并发布发言事件
+            speech_event = Event(
+                event_id=str(uuid.uuid4()),
+                game_id=game_id,
+                seq_num=0,
+                event_type=EventType.SPEECH_EVENT,
+                visibility=Visibility.PUBLIC,
+                target_agents=[],
+                timestamp=now_tz(),
+                payload={
+                    "actor_id": action.actor_id,
+                    "content": action.speech_content or action.reason,
+                    "emotion": Emotion.NEUTRAL.value,
+                    "phase": current_phase.value,
+                    "round": action.round,
+                },
+            )
+            await event_bus.publish(speech_event)
+            return InternalSubmitResult(True, "发言提交成功")
+            
+        else:
+            # 处理夜间技能动作
+            resolver = ActionResolver(game_id, event_bus)
+            await resolver.submit_action(action, roles={}, current_phase=current_phase)
+            
+            # 检查是否满足提前结束条件
+            from ai_werewolf_core.core.engine.game_engine import GameEngine
+            roles = await GameEngine.load_roles_from_persistence(game_id)
+            engine = GameEngine(game_id, event_bus, roles)
+            try:
+                await engine._check_early_termination(current_phase)
+            except Exception as e:
+                logger.warning("early_termination_check_failed", phase=current_phase.value, error=str(e))
+                
+            return InternalSubmitResult(True, "技能提交成功")
+            
+    except ActionValidationError as e:
+        return InternalSubmitResult(False, str(e))
+    except Exception as e:
+        logger.error("submit_action_internal_failed", game_id=game_id, error=str(e), exc_info=True)
+        return InternalSubmitResult(False, f"内部错误: {str(e)}")
 
 
 # ============================================================================

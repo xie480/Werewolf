@@ -68,7 +68,63 @@ def run_agent_decision(
     # 注意：Celery 任务是同步的，但 LangGraph 节点是异步的
     # 需要使用 asyncio 运行
     import asyncio
-    final_state = asyncio.run(graph.ainvoke(initial_state))
+    
+    async def _run_and_submit():
+        """执行LangGraph工作流并提交代理操作
+        
+        此函数执行以下步骤：
+        1. 通过ainvoke调用graph并获取状态
+        2. 检查状态中的建议操作是否有效
+        3. 如果操作有效，则将其提交到游戏中
+        4. 如果提交失败或出现异常，则执行回退机制，提交安全默认操作
+        5. 返回最终状态
+        
+        Returns:
+            Dict[str, Any]: 包含操作结果的最终状态字典
+        """
+        state = await graph.ainvoke(initial_state)
+        
+        proposed_action = state.get("proposed_action")
+        is_valid = state.get("is_valid", False)
+        
+        # 验证操作并尝试提交
+        if is_valid and proposed_action:
+            from ai_werewolf_core.schemas.models import AgentAction
+            from ai_werewolf_core.api.routes.actions import submit_action_internal
+            
+            try:
+                # 创建操作对象并提交到游戏中
+                action_obj = AgentAction(**proposed_action)
+                submit_result = await submit_action_internal(game_id, action_obj)
+                if not submit_result.accepted:
+                    logger.warning("submit_action_rejected", reason=submit_result.reason, action=proposed_action)
+                    raise ValueError(f"Action rejected: {submit_result.reason}")
+                else:
+                    logger.info("submit_action_success", game_id=game_id, player_id=player_id, action=proposed_action)
+            except Exception as e:
+                # 主操作提交失败时执行回退逻辑
+                logger.error("submit_action_failed_triggering_fallback", error=str(e), exc_info=True)
+                from ai_werewolf_core.agents.graph.nodes import generate_safe_default_action
+                from ai_werewolf_core.schemas.enums import GamePhase
+                
+                try:
+                    # 获取操作阶段和轮数信息
+                    phase_val = proposed_action.get("phase")
+                    phase_enum = GamePhase(phase_val) if phase_val else GamePhase.DAY_DISCUSSION
+                    round_num = proposed_action.get("round", 1)
+                    
+                    # 生成并提交安全的默认操作作为回退方案
+                    fallback_action_dict = generate_safe_default_action(phase_enum, round_num, player_id)
+                    fallback_action_obj = AgentAction(**fallback_action_dict)
+                    
+                    logger.info("submitting_fallback_action", fallback_action=fallback_action_dict)
+                    await submit_action_internal(game_id, fallback_action_obj)
+                except Exception as fallback_e:
+                    logger.error("fallback_action_failed", error=str(fallback_e), exc_info=True)
+                    
+        return state
+
+    final_state = asyncio.run(_run_and_submit())
 
     result = {
         "game_id": game_id,
@@ -88,98 +144,6 @@ def run_agent_decision(
     )
 
     return result
-
-
-@shared_task(name="agents.submit_action", bind=True)
-def submit_agent_action(
-    self,
-    game_id: str,
-    player_id: str,
-    action: Dict[str, Any],
-) -> Dict[str, Any]:
-    """
-    Celery 任务：将 Agent 生成的最终动作提交给 Engine。
-
-    Args:
-        game_id: 游戏唯一标识
-        player_id: 玩家唯一标识
-        action: 待提交的动作字典
-
-    Returns:
-        提交结果字典
-    """
-    logger.info(
-        "submit_action_task",
-        task_id=self.request.id,
-        game_id=game_id,
-        player_id=player_id,
-        action_type=action.get("action_type"),
-    )
-
-    # 实际调用 Engine 提交动作
-    import asyncio
-    from ai_werewolf_core.schemas.models import AgentAction
-    from ai_werewolf_core.api.routes.actions import submit_action_internal
-
-    async def _submit():
-        try:
-            action_obj = AgentAction(**action)
-            # 调用内部提交接口，复用 API 层的逻辑
-            result = await submit_action_internal(game_id, action_obj)
-            
-            if result.accepted:
-                return {
-                    "game_id": game_id,
-                    "player_id": player_id,
-                    "submitted": True,
-                    "reason": result.reason,
-                    "action": action,
-                }
-            else:
-                logger.warning("submit_action_rejected", reason=result.reason, action=action)
-                # 触发兜底
-                raise ValueError(f"Action rejected: {result.reason}")
-                
-        except Exception as e:
-            logger.error("submit_action_failed_triggering_fallback", error=str(e), exc_info=True)
-            
-            # 终极兜底：构造安全的默认动作并强制提交(但基本不太可能)
-            from ai_werewolf_core.agents.graph.nodes import generate_safe_default_action
-            from ai_werewolf_core.schemas.enums import GamePhase
-            
-            try:
-                # 尝试从原动作中提取阶段和轮次，如果失败则使用默认值
-                phase_val = action.get("phase")
-                phase_enum = GamePhase(phase_val) if phase_val else GamePhase.DAY_DISCUSSION
-                round_num = action.get("round", 1)
-                
-                # 生成默认动作
-                fallback_action_dict = generate_safe_default_action(phase_enum, round_num, player_id)
-                # 构造对象
-                fallback_action_obj = AgentAction(**fallback_action_dict)
-                
-                logger.info("submitting_fallback_action", fallback_action=fallback_action_dict)
-                # 提交
-                fallback_result = await submit_action_internal(game_id, fallback_action_obj)
-                
-                return {
-                    "game_id": game_id,
-                    "player_id": player_id,
-                    "submitted": fallback_result.accepted,
-                    "reason": f"Fallback submitted. Original error: {str(e)}. Fallback result: {fallback_result.reason}",
-                    "action": fallback_action_dict,
-                }
-            except Exception as fallback_e:
-                logger.error("fallback_action_failed", error=str(fallback_e), exc_info=True)
-                return {
-                    "game_id": game_id,
-                    "player_id": player_id,
-                    "submitted": False,
-                    "reason": f"Original error: {str(e)}. Fallback error: {str(fallback_e)}",
-                    "action": action,
-                }
-
-    return asyncio.run(_submit())
 
 
 @shared_task(name="agents.archive_memory", bind=True)
@@ -293,3 +257,20 @@ def task_archive_memory(
             return {"success": False, "error": str(e)}
             
     return asyncio.run(_archive())
+
+
+@shared_task(name="agents.submit_action", bind=True)
+def submit_action(self, game_id: str, action: dict) -> Dict[str, Any]:
+    """
+    Placeholder task that forwards to the internal submit_action helper.
+    """
+    try:
+        from ai_werewolf_core.schemas.models import AgentAction
+        action_obj = AgentAction(**action)
+        from ai_werewolf_core.api.routes.actions import submit_action_internal
+        import asyncio
+        result = asyncio.run(submit_action_internal(game_id, action_obj))
+        return {"accepted": result.accepted, "reason": result.reason}
+    except Exception as e:
+        logger.error("submit_action_task_error", error=str(e), exc_info=True)
+        raise e

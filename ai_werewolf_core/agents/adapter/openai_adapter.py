@@ -88,7 +88,7 @@ class OpenAIAdapter(BaseModelAdapter):
                         
                     from ai_werewolf_core.agents.prompts.builder import PromptBuilder
                     builder = PromptBuilder()
-                    template = builder.env.get_template("core/retry.j2")
+                    template = builder.env.get_template("retry.j2")
                     retry_prompt = template.render(error=str(e))
                     messages.append({"role": "assistant", "content": raw_text})
                     messages.append({"role": "user", "content": retry_prompt})
