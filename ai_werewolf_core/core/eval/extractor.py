@@ -174,10 +174,8 @@ class DataExtractor:
             for round_num, data in round_data.items():
                 reasoning_list = data.get("reasoning", [])
                 
-                # TODO: 目前 reasoning 中存储的是自然语言，无法直接解析出 suspect_heatmap。
-                # 需要在 Agent Runtime 阶段，强制 Agent 在每轮结束时输出结构化的 suspect_list 并单独存储。
-                # 此处暂时使用空字典占位。
-                suspect_heatmap = {}
+                # 获取最新的嫌疑人列表作为 suspect_heatmap
+                suspect_heatmap = await self.private_memory.get_last_suspect_list(game_id, player_id)
                 
                 monologues.append(AgentInternalMonologue(
                     round_num=round_num,

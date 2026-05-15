@@ -216,12 +216,17 @@ async def reasoning_node(state: AgentState) -> Dict[str, Any]:
             if parsed_data.speech_content and parsed_data.action_type == ActionType.SPEAK.value:
                 proposed_action["speech_content"] = parsed_data.speech_content
                 
-            # 保存内心 OS 和嫌疑人列表
+            # 保存内心 OS 和嫌疑人列表 (非阻塞异步写入)
             from ai_werewolf_core.agents.memory.private import PrivateMemoryManager
+            import asyncio
             private_mgr = PrivateMemoryManager()
-            await private_mgr.save_reasoning(game_id, player_id, current_round, parsed_data.internal_monologue)
+            asyncio.create_task(
+                private_mgr.save_reasoning(game_id, player_id, current_round, parsed_data.internal_monologue)
+            )
             if parsed_data.suspect_list:
-                await private_mgr.save_suspect_list(game_id, player_id, parsed_data.suspect_list)
+                asyncio.create_task(
+                    private_mgr.save_suspect_list(game_id, player_id, parsed_data.suspect_list)
+                )
                 
             return {
                 "raw_llm_response": response.raw_content,
