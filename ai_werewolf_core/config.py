@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     compression_model_url: str = "https://api.openai.com/v1"
     compression_model_key: str = ""
     compression_model_name: str = "gpt-3.5-turbo"
+    
+    # 评测模型配置
+    eval_model_url: str = "https://api.openai.com/v1"
+    eval_model_key: str = ""
+    eval_model_name: str = "gpt-4o-mini"
+    
     # 模型配置列表（可在 .env 中覆盖或在运行时动态加载）
     models: List[ModelConfig] = Field(
         default_factory=lambda: [

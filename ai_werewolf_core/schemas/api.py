@@ -223,5 +223,4 @@ class MatchReportResponse(BaseModel):
     duration_seconds: int
     winner: str
     mvp_agent_id: str
-    faction_win_probability_curve: list
     evaluations: List[AgentEvaluationResponse]

@@ -12,7 +12,7 @@ from ai_werewolf_core.db.models import MatchReport, AgentEvaluation
 from ai_werewolf_core.core.eval.extractor import DataExtractor
 from ai_werewolf_core.core.eval.heuristic import HeuristicScorer
 from ai_werewolf_core.core.eval.llm_judge import LLMJudge
-from ai_werewolf_core.core.eval.schemas import ExtractedGameData
+from ai_werewolf_core.schemas.eval import ExtractedGameData
 from ai_werewolf_core.schemas.enums import Role
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.snowflake import get_snowflake
@@ -65,11 +65,6 @@ class EvaluationPipeline:
                 evaluations.append(eval_result)
                 
         # 4. 生成并保存 MatchReport
-        # 简单计算阵营胜率走势 (这里仅作示例，实际可能需要更复杂的模型或基于 suspect_heatmap 计算)
-        # 假设初始 50/50，根据存活人数变化
-        faction_win_probability_curve = [
-            {"round": 1, "werewolf_prob": 0.5, "villager_prob": 0.5}
-        ]
         
         # 简单评选 MVP (综合得分最高者)
         mvp_agent_id = ""
@@ -89,7 +84,6 @@ class EvaluationPipeline:
             duration_seconds=data.duration_seconds,
             winner=data.winner.value,
             mvp_agent_id=mvp_agent_id,
-            faction_win_probability_curve=faction_win_probability_curve,
             evaluations=evaluations
         )
         
@@ -112,7 +106,6 @@ class EvaluationPipeline:
         # 客观评分
         rule_compliance = heuristic_scorer.calculate_rule_compliance(player_id)
         logical_consistency = heuristic_scorer.calculate_logical_consistency(player_id)
-        persuasion = heuristic_scorer.calculate_persuasion_score(player_id)
         situational_awareness = heuristic_scorer.calculate_situational_awareness(player_id)
         
         # 主观评分 (LLM)

@@ -243,9 +243,6 @@ class MatchReport(Base):
     duration_seconds: Mapped[int] = mapped_column(Integer, comment="对局时长（秒）")
     winner: Mapped[str] = mapped_column(String(32), comment="获胜阵营 (VILLAGER / WEREWOLF)")
     mvp_agent_id: Mapped[str] = mapped_column(String(32), comment="MVP 玩家标识")
-    faction_win_probability_curve: Mapped[list] = mapped_column(
-        JSONB, default=list, comment="阵营胜率走势（用于前端折线图）"
-    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

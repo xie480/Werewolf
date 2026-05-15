@@ -6,7 +6,7 @@
 
 from typing import Dict, List
 from ai_werewolf_core.schemas.enums import Faction, Role
-from ai_werewolf_core.core.eval.schemas import ExtractedGameData
+from ai_werewolf_core.schemas.eval import ExtractedGameData
 from ai_werewolf_core.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -53,35 +53,6 @@ class HeuristicScorer:
                         score -= deduction_per_inconsistency
                         
         return max(0, score)
-
-    def calculate_persuasion_score(self, player_id: str) -> int:
-        """
-        计算煽动与说服力（跟票率）。
-        简单实现：看该玩家投票的目标，在同一轮中有多少其他人也投给了该目标。
-        """
-        total_votes_cast = 0
-        followed_votes = 0
-        
-        for round_num, votes in self.data.vote_records.items():
-            if player_id in votes:
-                target = votes[player_id]
-                total_votes_cast += 1
-                
-                # 统计同一轮中，排在该玩家之后投票且目标相同的人数
-                # 由于 vote_records 是字典，无法体现严格时序，这里简化为：
-                # 统计同一轮中投给相同目标的其他玩家数量
-                for voter, v_target in votes.items():
-                    if voter != player_id and v_target == target:
-                        followed_votes += 1
-                        
-        if total_votes_cast == 0:
-            return 50 # 基础分
-            
-        # 简单的跟票率计算，映射到 0-100
-        # 假设平均每轮有 1 个人跟票算及格 (60分)
-        avg_followers = followed_votes / total_votes_cast
-        score = min(100, int(50 + avg_followers * 20))
-        return score
 
     def calculate_situational_awareness(self, player_id: str) -> int:
         """

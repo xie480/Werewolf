@@ -13,11 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_werewolf_core.db.models import EventRecord, GameRecord, PlayerRecord
 from ai_werewolf_core.schemas.enums import EventType, Faction, Role, GamePhase
 from ai_werewolf_core.agents.memory.private import PrivateMemoryManager
-from ai_werewolf_core.core.eval.schemas import (
+from ai_werewolf_core.schemas.eval import (
     ExtractedGameData,
     AgentActionLog,
     AgentInternalMonologue,
 )
+from ai_werewolf_core.schemas.enums import ActionType
 from ai_werewolf_core.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -45,9 +46,6 @@ class DataExtractor:
         game_record = await self._get_game_record(game_id)
         if not game_record:
             raise ValueError(f"GameRecord not found for game_id: {game_id}")
-            
-        # 假设 winner 已经通过某种方式记录在 game_record 中，或者需要通过 evaluator 重新计算
-        # TODO 这里我们假设在 GAME_OVER 事件中记录了 winner，稍后从事件中提取
         
         global_roles: Dict[str, Role] = {}
         global_factions: Dict[str, Faction] = {}
@@ -80,8 +78,7 @@ class DataExtractor:
                 
             # 游戏结束事件
             elif event.event_type == EventType.GAME_OVER_EVENT:
-                # TODO: 获取 winner
-                winner_str = payload.get("winner")
+                winner_str = payload.get("winner_faction")
                 if winner_str:
                     winner = Faction(winner_str)
                     
@@ -117,17 +114,15 @@ class DataExtractor:
                     if target: # 忽略弃票
                         vote_records[current_round][voter] = target
                         
-            # TODO 死亡事件应该还有很多种：狼人杀害、猎人开枪、投票死亡、女巫毒药
             elif event.event_type == EventType.PLAYER_DEATH:
-                # 记录夜晚击杀
-                if GamePhase in current_phase:
+                # 记录夜晚击杀 (仅记录狼人杀害的，用于评估狼人找神能力)
+                # 死亡事件的 payload 中包含 reason 字段
+                reason = payload.get("reason")
+                if reason == ActionType.WOLF_KILL:
                     dead_player = payload.get("player_id")
                     if dead_player:
                         night_kills[current_round] = dead_player
-                        
-            # 假设动作校验失败会记录特定的事件或在 payload 中有标记
-            # 这里需要根据实际的 Event Sourcing 设计来提取
-            # 暂时留空或根据实际情况补充
+                    
             
         # 4. 提取内部思维链
         agent_internal_monologues: Dict[str, List[AgentInternalMonologue]] = {}
@@ -175,22 +170,33 @@ class DataExtractor:
         monologues = []
         try:
             round_data = await self.private_memory.get_private_round_data(game_id, player_id)
-            # 获取嫌疑人列表，这里简化处理，假设每轮的嫌疑人列表可以通过某种方式获取
-            # TODO 实际上 get_last_suspect_list 只能获取最新的，如果需要历史的，可能需要修改 PrivateMemoryManager
-            # 为了评测，我们可能需要 Agent 在每轮结束时将 suspect_list 记录到 reasoning 或专门的 key 中
-            # 暂时使用 get_last_suspect_list 作为近似，或者如果 reasoning 中包含了 suspect_list 则解析
-            
-            last_suspect_list = await self.private_memory.get_last_suspect_list(game_id, player_id)
             
             for round_num, data in round_data.items():
                 reasoning_list = data.get("reasoning", [])
-                # 尝试从 reasoning 中解析出 suspect_heatmap，如果格式支持的话
-                # 否则使用 last_suspect_list 作为 fallback
+                suspect_heatmap = {}
+                
+                # 尝试从 reasoning 中解析出 suspect_heatmap
+                # 假设 Agent 在每轮的最后一次 reasoning 中包含了 suspect_list 的 JSON 字符串
+                for reasoning_str in reversed(reasoning_list):
+                    try:
+                        # 尝试寻找 JSON 格式的 suspect_list
+                        # 这里假设 reasoning_str 中可能包含类似 {"suspect_list": {"player_1": 0.8}} 的结构
+                        # 或者直接就是一个包含 suspect_list 的 JSON
+                        parsed = json.loads(reasoning_str)
+                        if isinstance(parsed, dict) and "suspect_list" in parsed:
+                            suspect_heatmap = parsed["suspect_list"]
+                            break
+                    except json.JSONDecodeError:
+                        continue
+                
+                # 如果没有解析出来，尝试获取最新的作为 fallback
+                if not suspect_heatmap:
+                    suspect_heatmap = await self.private_memory.get_last_suspect_list(game_id, player_id)
                 
                 monologues.append(AgentInternalMonologue(
                     round_num=round_num,
                     reasoning=reasoning_list,
-                    suspect_heatmap=last_suspect_list # TODO: 理想情况下应该是该轮结束时的 heatmap
+                    suspect_heatmap=suspect_heatmap
                 ))
         except Exception as e:
             logger.error("提取内部思维链失败", game_id=game_id, player_id=player_id, error=str(e))

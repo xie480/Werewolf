@@ -109,7 +109,6 @@
 | `duration_seconds` | `INTEGER` | — | 对局时长（秒） |
 | `winner` | `ENUM(Faction)` | — | 获胜阵营 (VILLAGER / WEREWOLF) |
 | `mvp_agent_id` | `VARCHAR(32)` | — | MVP 玩家标识 |
-| `faction_win_probability_curve` | `JSONB` | `DEFAULT []` | 阵营胜率走势（用于前端折线图） |
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL`, `DEFAULT now()` | 记录创建时间 |
 
 **关联关系**:

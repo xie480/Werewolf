@@ -65,26 +65,15 @@ def _evaluate_game_impl(self, game_id: str) -> dict:
     async def _run() -> dict:
         from ai_werewolf_core.db.session import async_session_factory
         from ai_werewolf_core.core.eval.pipeline import EvaluationPipeline
-        from ai_werewolf_core.db.models import ModelConfig
-        from sqlalchemy import select
+        from ai_werewolf_core.config import settings
         
         async with async_session_factory() as session:
-            # 获取一个用于评测的模型配置
-            stmt = select(ModelConfig).limit(1)
-            result = await session.execute(stmt)
-            model_config_record = result.scalar_one_or_none()
-            
-            if model_config_record:
-                model_config = model_config_record.to_adapter_config()
-                model_config["provider"] = model_config_record.provider
-            else:
-                # Fallback 默认配置
-                model_config = {
-                    "provider": "openai",
-                    "model_name": "gpt-4o-mini",
-                    "api_key": "dummy",
-                    "base_url": "https://api.openai.com/v1"
-                }
+            model_config = {
+                "provider": "openai",
+                "model_name": settings.eval_model_name,
+                "api_key": settings.eval_model_key,
+                "base_url": settings.eval_model_url
+            }
                 
             pipeline = EvaluationPipeline(session, model_config)
             report = await pipeline.run(game_id)
