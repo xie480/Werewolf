@@ -18,6 +18,8 @@ from ai_werewolf_core.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+import asyncio
+
 @celery_app.task(
     bind=True,
     max_retries=3,
@@ -25,33 +27,73 @@ logger = get_logger(__name__)
     name="tasks.eval.evaluate_game",
 )
 def evaluate_game_task(self, game_id: str) -> dict:
-    """赛后评测任务 —— Phase 5 占位。
+    """赛后评测任务 —— 执行五维评分并生成复盘报告。
 
-    对已结束的对局执行五维评分（推理能力、阵营协作、
-    信息利用、策略深度、情绪表达），生成复盘报告。
+    对已结束的对局执行五维评分，生成复盘报告。
 
     Args:
         game_id: 对局唯一标识。
 
     Returns:
-        占位结果: ``{"game_id": str, "status": "placeholder"}``
+        包含评测结果摘要的字典。
     """
     logger.info(
-        "celery_evaluate_game_placeholder",
+        "celery_evaluate_game_start",
         game_id=game_id,
         task_id=self.request.id,
     )
-    # Phase 5 Evaluation System 完成后实现完整评测逻辑
-    return {
-        "game_id": game_id,
-        "task": "evaluate_game",
-        "status": "placeholder",
-        "scores": {
-            "reasoning": 0,
-            "teamwork": 0,
-            "information": 0,
-            "strategy": 0,
-            "expression": 0,
-        },
-        "message": "Phase 5 Evaluation System 完成后实现",
-    }
+    
+    try:
+        result = asyncio.run(_evaluate_game_impl(self, game_id))
+        return result
+    except Exception as e:
+        logger.error(
+            "celery_evaluate_game_failed",
+            game_id=game_id,
+            error=str(e),
+            exc_info=True,
+        )
+        return {
+            "game_id": game_id,
+            "task": "evaluate_game",
+            "status": "error",
+            "error": str(e),
+        }
+
+def _evaluate_game_impl(self, game_id: str) -> dict:
+    """evaluate_game_task 的异步实现。"""
+    async def _run() -> dict:
+        from ai_werewolf_core.db.session import async_session_factory
+        from ai_werewolf_core.core.eval.pipeline import EvaluationPipeline
+        from ai_werewolf_core.db.models import ModelConfig
+        from sqlalchemy import select
+        
+        async with async_session_factory() as session:
+            # 获取一个用于评测的模型配置
+            stmt = select(ModelConfig).limit(1)
+            result = await session.execute(stmt)
+            model_config_record = result.scalar_one_or_none()
+            
+            if model_config_record:
+                model_config = model_config_record.to_adapter_config()
+                model_config["provider"] = model_config_record.provider
+            else:
+                # Fallback 默认配置
+                model_config = {
+                    "provider": "openai",
+                    "model_name": "gpt-4o-mini",
+                    "api_key": "dummy",
+                    "base_url": "https://api.openai.com/v1"
+                }
+                
+            pipeline = EvaluationPipeline(session, model_config)
+            report = await pipeline.run(game_id)
+            
+            return {
+                "game_id": game_id,
+                "task": "evaluate_game",
+                "status": "success",
+                "report_id": report.id
+            }
+            
+    return asyncio.new_event_loop().run_until_complete(_run())

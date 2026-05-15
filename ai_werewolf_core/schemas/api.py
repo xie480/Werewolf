@@ -195,3 +195,33 @@ class ActionResponse(BaseModel):
     action_type: str = Field(description="执行的动作类型")
     actor_id: str = Field(description="行动者 ID")
     target_id: Optional[str] = Field(default=None, description="目标玩家 ID")
+
+
+# ============================================================================
+# 评测复盘 Schema
+# ============================================================================
+
+class AgentEvaluationResponse(BaseModel):
+    """单个玩家的评测结果响应"""
+    player_id: str
+    role: str
+    rule_compliance_score: int
+    logical_consistency_score: int
+    roleplay_score: int
+    deception_score: Optional[int] = None
+    god_deduction_score: Optional[int] = None
+    situational_awareness_score: Optional[int] = None
+    leadership_score: Optional[int] = None
+    strengths: Optional[str] = None
+    weaknesses: Optional[str] = None
+    overall_review: Optional[str] = None
+
+class MatchReportResponse(BaseModel):
+    """对局复盘报告响应"""
+    report_id: str
+    game_id: str
+    duration_seconds: int
+    winner: str
+    mvp_agent_id: str
+    faction_win_probability_curve: list
+    evaluations: List[AgentEvaluationResponse]

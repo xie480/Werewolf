@@ -308,7 +308,9 @@ Do not write redundant comments that only describe obvious syntax.
 | Phase 2 | 已完成 | 纯规则 Game Engine: 状态机、动作校验、胜负判定、角色能力 |
 | Phase 3 | 已完成 | 异步通信: FastAPI 接口、WebSocket 推送、Celery Worker |
 | Phase 4 | 已完成 | Agent Runtime: LangGraph 工作流、Memory、Model Adapter |
-| Phase 5 | 待开始 | 评测复盘: structlog 排障、Evaluator 五维评分 |
+| Phase 5 | 待开始 | 评测复盘: Evaluation 五维评分、Replay 回放系统 |
+| Phase 6 | 待开始 | 进化与观测: Agent 自进化 (RAG)、LangSmith 链路追踪与监控 |
+| Phase 7 | 待开始 | 前端交互: 人机混战 (Human-in-the-loop)、导演控制台 |
 
 ---
 

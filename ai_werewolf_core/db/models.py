@@ -57,6 +57,9 @@ class GameRecord(Base):
     events: Mapped[list["EventRecord"]] = relationship(
         "EventRecord", back_populates="game", cascade="all, delete-orphan"
     )
+    match_report: Mapped["MatchReport"] = relationship(
+        "MatchReport", back_populates="game", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 class PlayerRecord(Base):
@@ -100,6 +103,9 @@ class PlayerRecord(Base):
     # 关联
     game: Mapped["GameRecord"] = relationship("GameRecord", back_populates="players")
     ai_profile: Mapped["AIPlayerProfile"] = relationship("AIPlayerProfile")
+    evaluations: Mapped[list["AgentEvaluation"]] = relationship(
+        "AgentEvaluation", back_populates="player", cascade="all, delete-orphan"
+    )
 
 
 class EventRecord(Base):
@@ -217,3 +223,82 @@ class AIPlayerStats(Base):
     last_played_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, comment="最后一次参与对局的时间")
 
     profile: Mapped["AIPlayerProfile"] = relationship("AIPlayerProfile", back_populates="stats")
+
+
+class MatchReport(Base):
+    """对局复盘报告表 —— 存储每局游戏结束后的全局复盘数据。"""
+
+    __tablename__ = "match_reports"
+
+    id: Mapped[str] = mapped_column(
+        String(19), primary_key=True, index=True, comment="雪花算法全局唯一ID"
+    )
+    game_id: Mapped[str] = mapped_column(
+        String(19),
+        ForeignKey("games.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+        comment="所属对局ID",
+    )
+    duration_seconds: Mapped[int] = mapped_column(Integer, comment="对局时长（秒）")
+    winner: Mapped[str] = mapped_column(String(32), comment="获胜阵营 (VILLAGER / WEREWOLF)")
+    mvp_agent_id: Mapped[str] = mapped_column(String(32), comment="MVP 玩家标识")
+    faction_win_probability_curve: Mapped[list] = mapped_column(
+        JSONB, default=list, comment="阵营胜率走势（用于前端折线图）"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    # 关联
+    game: Mapped["GameRecord"] = relationship("GameRecord", back_populates="match_report")
+    evaluations: Mapped[list["AgentEvaluation"]] = relationship(
+        "AgentEvaluation", back_populates="report", cascade="all, delete-orphan"
+    )
+
+
+class AgentEvaluation(Base):
+    """玩家评测明细表 —— 存储每个 Agent 在对局中的五维评分及 LLM 裁判的详细评价。"""
+
+    __tablename__ = "agent_evaluations"
+
+    id: Mapped[str] = mapped_column(
+        String(19), primary_key=True, index=True, comment="雪花算法全局唯一ID"
+    )
+    report_id: Mapped[str] = mapped_column(
+        String(19),
+        ForeignKey("match_reports.id", ondelete="CASCADE"),
+        index=True,
+        comment="所属复盘报告ID",
+    )
+    player_id: Mapped[str] = mapped_column(
+        String(19),
+        ForeignKey("players.id", ondelete="CASCADE"),
+        index=True,
+        comment="关联的玩家记录ID",
+    )
+    role: Mapped[Role] = mapped_column(SQLEnum(Role), comment="玩家身份")
+    
+    # 通用维度
+    rule_compliance_score: Mapped[int] = mapped_column(Integer, comment="规则服从度得分")
+    logical_consistency_score: Mapped[int] = mapped_column(Integer, comment="逻辑连贯性得分")
+    roleplay_score: Mapped[int] = mapped_column(Integer, comment="角色扮演得分")
+    
+    # 专属维度
+    deception_score: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="伪装与欺骗得分 (狼人专属)")
+    god_deduction_score: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="找神能力得分 (狼人专属)")
+    situational_awareness_score: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="态势感知得分 (好人专属)")
+    leadership_score: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="统帅与引导得分 (好人专属)")
+    
+    # LLM 评价
+    strengths: Mapped[str | None] = mapped_column(String, nullable=True, comment="高光时刻总结")
+    weaknesses: Mapped[str | None] = mapped_column(String, nullable=True, comment="致命失误总结")
+    overall_review: Mapped[str | None] = mapped_column(String, nullable=True, comment="综合评价")
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    # 关联
+    report: Mapped["MatchReport"] = relationship("MatchReport", back_populates="evaluations")
+    player: Mapped["PlayerRecord"] = relationship("PlayerRecord", back_populates="evaluations")

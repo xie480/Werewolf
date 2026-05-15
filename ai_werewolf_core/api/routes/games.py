@@ -29,6 +29,8 @@ from ai_werewolf_core.schemas.api import (
     GameDetailResponse,
     GameListResponse,
     GameStatusResponse,
+    MatchReportResponse,
+    AgentEvaluationResponse,
 )
 from ai_werewolf_core.schemas.enums import GameStatus, Role
 from ai_werewolf_core.utils.logger import get_logger
@@ -463,6 +465,69 @@ async def join_game(game_id: str) -> GameStatusResponse:
     except Exception as e:
         logger.error("join_game_failed", game_id=game_id, error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=f"加入对局失败: {str(e)}")
+
+
+@router.get("/{game_id}/report", response_model=MatchReportResponse)
+async def get_game_report(game_id: str) -> MatchReportResponse:
+    """获取对局复盘报告。
+
+    查询指定对局的评测复盘数据，包括胜负结果、MVP、阵营胜率走势以及每个玩家的五维评分。
+
+    Raises:
+        404: 报告不存在（对局尚未结束或评测未完成）。
+        500: 未知内部错误。
+    """
+    from ai_werewolf_core.db.session import async_session_factory
+    from ai_werewolf_core.db.models import MatchReport
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    try:
+        async with async_session_factory() as session:
+            stmt = (
+                select(MatchReport)
+                .options(selectinload(MatchReport.evaluations))
+                .where(MatchReport.game_id == game_id)
+            )
+            result = await session.execute(stmt)
+            report = result.scalar_one_or_none()
+
+            if not report:
+                raise HTTPException(status_code=404, detail=f"对局 [{game_id}] 的复盘报告不存在")
+
+            evaluations = [
+                AgentEvaluationResponse(
+                    player_id=ev.player_id,
+                    role=ev.role.value,
+                    rule_compliance_score=ev.rule_compliance_score,
+                    logical_consistency_score=ev.logical_consistency_score,
+                    roleplay_score=ev.roleplay_score,
+                    deception_score=ev.deception_score,
+                    god_deduction_score=ev.god_deduction_score,
+                    situational_awareness_score=ev.situational_awareness_score,
+                    leadership_score=ev.leadership_score,
+                    strengths=ev.strengths,
+                    weaknesses=ev.weaknesses,
+                    overall_review=ev.overall_review,
+                )
+                for ev in report.evaluations
+            ]
+
+            return MatchReportResponse(
+                report_id=report.id,
+                game_id=report.game_id,
+                duration_seconds=report.duration_seconds,
+                winner=report.winner,
+                mvp_agent_id=report.mvp_agent_id,
+                faction_win_probability_curve=report.faction_win_probability_curve,
+                evaluations=evaluations,
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_game_report_failed", game_id=game_id, error=str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail=f"查询复盘报告失败: {str(e)}")
 
 
 @router.get("", response_model=GameListResponse)

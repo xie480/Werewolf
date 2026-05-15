@@ -96,17 +96,96 @@
 
 ---
 
+## 4. `match_reports` — 对局复盘报告表
+
+**用途**: 存储每局游戏结束后的全局复盘数据，包括胜负结果、MVP、阵营胜率走势等。
+
+**ORM 模型**: `ai_werewolf_core.db.models.MatchReport`
+
+| 列名 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `id` | `VARCHAR(19)` | `PRIMARY KEY`, `INDEX` | 雪花算法全局唯一 ID |
+| `game_id` | `VARCHAR(19)` | `FOREIGN KEY → games.id ON DELETE CASCADE`, `UNIQUE`, `INDEX` | 所属对局 ID |
+| `duration_seconds` | `INTEGER` | — | 对局时长（秒） |
+| `winner` | `ENUM(Faction)` | — | 获胜阵营 (VILLAGER / WEREWOLF) |
+| `mvp_agent_id` | `VARCHAR(32)` | — | MVP 玩家标识 |
+| `faction_win_probability_curve` | `JSONB` | `DEFAULT []` | 阵营胜率走势（用于前端折线图） |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, `DEFAULT now()` | 记录创建时间 |
+
+**关联关系**:
+- `game`: 一对一 → `GameRecord`
+- `evaluations`: 一对多 → `AgentEvaluation`（级联删除）
+
+---
+
+## 5. `agent_evaluations` — 玩家评测明细表
+
+**用途**: 存储每个 Agent 在对局中的五维评分及 LLM 裁判的详细评价。
+
+**ORM 模型**: `ai_werewolf_core.db.models.AgentEvaluation`
+
+| 列名 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `id` | `VARCHAR(19)` | `PRIMARY KEY`, `INDEX` | 雪花算法全局唯一 ID |
+| `report_id` | `VARCHAR(19)` | `FOREIGN KEY → match_reports.id ON DELETE CASCADE`, `INDEX` | 所属复盘报告 ID |
+| `player_id` | `VARCHAR(19)` | `FOREIGN KEY → players.id ON DELETE CASCADE`, `INDEX` | 关联的玩家记录 ID |
+| `role` | `ENUM(Role)` | — | 玩家身份 |
+| `rule_compliance_score` | `INTEGER` | — | 规则服从度得分 (通用) |
+| `logical_consistency_score` | `INTEGER` | — | 逻辑连贯性得分 (通用) |
+| `roleplay_score` | `INTEGER` | — | 角色扮演得分 (通用) |
+| `deception_score` | `INTEGER` | `NULLABLE` | 伪装与欺骗得分 (狼人专属) |
+| `god_deduction_score` | `INTEGER` | `NULLABLE` | 找神能力得分 (狼人专属) |
+| `situational_awareness_score` | `INTEGER` | `NULLABLE` | 态势感知得分 (好人专属) |
+| `leadership_score` | `INTEGER` | `NULLABLE` | 统帅与引导得分 (好人专属) |
+| `strengths` | `TEXT` | `NULLABLE` | 高光时刻总结 |
+| `weaknesses` | `TEXT` | `NULLABLE` | 致命失误总结 |
+| `overall_review` | `TEXT` | `NULLABLE` | 综合评价 |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, `DEFAULT now()` | 记录创建时间 |
+
+**关联关系**:
+- `report`: 多对一 → `MatchReport`
+- `player`: 多对一 → `PlayerRecord`
+
+| 列名 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `id` | `VARCHAR(19)` | `PRIMARY KEY`, `INDEX` | 雪花算法全局唯一 ID |
+| `event_id` | `VARCHAR(64)` | `UNIQUE`, `INDEX` | 事件业务 ID (UUID v4) |
+| `game_id` | `VARCHAR(36)` | `FOREIGN KEY → games.id ON DELETE CASCADE`, `INDEX` | 所属对局 ID |
+| `seq_num` | `INTEGER` | `INDEX` | 全局递增序列号，保证时序 |
+| `event_type` | `ENUM(EventType)` | `INDEX` | 事件类型 |
+| `visibility` | `ENUM(Visibility)` | — | 可见性 (PUBLIC / PRIVATE / FACTION) |
+| `target_agents` | `JSONB` | `DEFAULT []` | 目标玩家 ID 列表 |
+| `payload` | `JSONB` | `DEFAULT {}` | 事件具体内容（灵活结构） |
+| `timestamp` | `TIMESTAMPTZ` | — | 事件发生时间 |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, `DEFAULT now()` | 记录创建时间 |
+
+**关联关系**:
+- `game`: 多对一 → `GameRecord`
+
+**枚举值参考**:
+- `EventType`: `PHASE_TRANSITION_EVENT`, `SYSTEM_ANNOUNCEMENT`, `GAME_OVER_EVENT`, `PLAYER_DEATH`, `VOTE_EVENT` (等)
+- `Visibility`: `PUBLIC`, `PRIVATE`, `FACTION`
+
+---
+
 ## 表关系图
 
 ```
 games (1) ────< players (N)
-  │
-  └───────────< events (N)
+  │               │
+  │               └───────────< agent_evaluations (N)
+  │                                   │
+  ├───────────< events (N)            │
+  │                                   │
+  └───────────- match_reports (1) ────┘
 ```
 
 - `players.game_id` → `games.id` (CASCADE DELETE)
 - `events.game_id` → `games.id` (CASCADE DELETE)
-- 删除 `games` 行时，关联的 `players` 和 `events` 行自动级联删除
+- `match_reports.game_id` → `games.id` (CASCADE DELETE)
+- `agent_evaluations.report_id` → `match_reports.id` (CASCADE DELETE)
+- `agent_evaluations.player_id` → `players.id` (CASCADE DELETE)
+- 删除 `games` 行时，关联的 `players`, `events`, `match_reports` 及 `agent_evaluations` 行自动级联删除
 
 ---
 

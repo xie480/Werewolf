@@ -576,6 +576,10 @@ class LifecycleManager:
         )
         await self.event_bus.publish(game_over_event)
 
+        # 触发异步评测任务
+        from ai_werewolf_core.tasks.eval import evaluate_game_task
+        evaluate_game_task.delay(self.game_id)
+
         # Step 4: SETTLING -> FINISHED
         await self._set_status(GameStatus.FINISHED)
 
