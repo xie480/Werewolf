@@ -110,15 +110,121 @@ class PublicMemoryManager:
                 except (ValueError, json.JSONDecodeError):
                     continue
                     
-        # 2. 获取未压缩的近期记忆  TODO 我觉得这段效率太低了
-        all_round_memories = await self.fetch_round_memories(game_id, max_events=999999)
-        # 使用大 max_events 确保能拉取到所有事件，避免因默认 100 条限制导致丢失最新记忆
-        recent_memories = [rm for rm in all_round_memories if rm.round_num > max_compressed_round]
+        # 2. 获取未压缩的近期记忆
+        recent_memories = await self.fetch_recent_uncompressed_memories(game_id, max_compressed_round)
         
         return {
             "compressed_memories": compressed_memories,
             "recent_memories": recent_memories
         }
+
+    async def fetch_recent_uncompressed_memories(self, game_id: str, max_compressed_round: int) -> List[RoundMemory]:
+        """使用 Lua 脚本高效获取未压缩的近期公共记忆
+
+        Args:
+            game_id (str): 游戏ID，用于标识特定的游戏实例
+            max_compressed_round (int): 最大已压缩轮次，函数将返回此轮次之后的记忆
+
+        Returns:
+            List[RoundMemory]: 返回从max_compressed_round+1开始的所有轮次的记忆列表，
+                              每个RoundMemory对象包含该轮次的公共事件、私有事实和推理信息
+        """
+        from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
+        from ai_werewolf_core.constant.redis_keys import RedisKeys
+        from ai_werewolf_core.schemas.models import Event
+        from ai_werewolf_core.schemas.enums import EventType, Visibility, GamePhase
+        import json
+        from datetime import datetime
+        from ai_werewolf_core.utils.time_utils import now_tz
+        
+        # 构建Redis流键名，用于存储游戏事件
+        stream_key = RedisKeys.event_stream(game_id)
+        
+        # 尝试使用Lua脚本获取最近的公共事件，如果失败则回退到旧方法
+        try:
+            raw_messages = await LuaScriptManager.evalsha(
+                "get_recent_public_events",
+                keys=[stream_key],
+                args=[str(max_compressed_round), "1000"]
+            )
+        except Exception as e:
+            logger.warning("lua_get_recent_public_events_failed", error=str(e))
+            # Fallback to old method
+            all_round_memories = await self.fetch_round_memories(game_id, max_events=999999)
+            return [rm for rm in all_round_memories if rm.round_num > max_compressed_round]
+            
+        if not raw_messages:
+            return []
+            
+        # 初始化字典以按轮次组织事件日志
+        round_dict: Dict[int, List[PublicEventLog]] = {}
+        
+        for msg in raw_messages:
+            # msg is [msg_id, [field1, value1, field2, value2, ...]]
+            if len(msg) != 2:
+                continue
+            msg_id = msg[0]
+            fields_list = msg[1]
+            
+            # 解析消息字段
+            fields = {}
+            for i in range(0, len(fields_list), 2):
+                k = fields_list[i].decode('utf-8') if isinstance(fields_list[i], bytes) else fields_list[i]
+                v = fields_list[i+1].decode('utf-8') if isinstance(fields_list[i+1], bytes) else fields_list[i+1]
+                fields[k] = v
+                
+            try:
+                # 从解析的字段创建事件对象
+                event = Event(
+                    event_id=fields.get("event_id", ""),
+                    game_id=fields.get("game_id", ""),
+                    seq_num=int(fields.get("seq_num", 0)),
+                    event_type=EventType(fields.get("event_type", "")),
+                    visibility=Visibility(fields.get("visibility", "")),
+                    target_agents=json.loads(fields.get("target_agents", "[]")),
+                    timestamp=datetime.fromisoformat(
+                        fields.get("timestamp", now_tz().isoformat())
+                    ),
+                    payload=json.loads(fields.get("payload", "{}")),
+                )
+                
+                # 格式化事件描述文本
+                desc = self._format_event_to_nl(event)
+                if desc:
+                    # 提取并验证游戏阶段
+                    phase_str = event.payload.get("phase", GamePhase.INIT.value)
+                    try:
+                        phase = GamePhase(phase_str)
+                    except ValueError:
+                        phase = GamePhase.INIT
+                        
+                    # 获取事件所属的轮次号
+                    round_num = event.payload.get("round", 1)
+                    
+                    # 将事件添加到对应轮次的事件列表中
+                    if round_num not in round_dict:
+                        round_dict[round_num] = []
+                        
+                    round_dict[round_num].append(PublicEventLog(
+                        seq_num=event.seq_num,
+                        phase=phase,
+                        description=desc
+                    ))
+            except Exception as e:
+                logger.error("parse_event_failed", error=str(e))
+                continue
+                
+        # 按轮次排序并构建最终的RoundMemory对象列表
+        round_memories = []
+        for round_num in sorted(round_dict.keys()):
+            round_memories.append(RoundMemory(
+                round_num=round_num,
+                public_events=sorted(round_dict[round_num], key=lambda x: x.seq_num),
+                private_facts=[],
+                reasoning=[]
+            ))
+            
+        return round_memories
 
     def _format_event_to_nl(self, event: Event) -> str:
         """将结构化 Event 转换为自然语言描述"""

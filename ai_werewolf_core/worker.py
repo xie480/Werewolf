@@ -74,4 +74,19 @@ import ai_werewolf_core.tasks.game   # noqa: F401
 import ai_werewolf_core.tasks.agent_tasks  # noqa: F401 - Agent 推理
 import ai_werewolf_core.tasks.eval   # noqa: F401 - 评测统计（Phase 5 占位）
 
+from celery.signals import worker_process_init
+
+@worker_process_init.connect
+def init_worker(**kwargs):
+    """Worker 进程启动时的初始化钩子"""
+    import asyncio
+    from ai_werewolf_core.agents.model.registry import ModelRegistry
+    
+    async def _init():
+        await ModelRegistry.init()
+        logger.info("model_registry_initialized_in_worker")
+        
+    # 运行异步初始化
+    asyncio.run(_init())
+
 logger.info("celery_app_initialized", broker=settings.redis_url)

@@ -86,8 +86,10 @@ class OpenAIAdapter(BaseModelAdapter):
                             usage={}
                         )
                         
-                    # TODO 占位重试 prompt
-                    retry_prompt = f"解析失败: {str(e)}。请修正格式并重新输出。"
+                    from ai_werewolf_core.agents.prompts.builder import PromptBuilder
+                    builder = PromptBuilder()
+                    template = builder.env.get_template("retry.j2")
+                    retry_prompt = template.render(error=str(e))
                     messages.append({"role": "assistant", "content": raw_text})
                     messages.append({"role": "user", "content": retry_prompt})
                     

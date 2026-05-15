@@ -54,8 +54,8 @@ async def on_phase_transition(event: Event):
         if not can_act:
             continue
             
-        # 假设目前所有玩家都是 AI
-        is_ai = True # TODO: 区分真实玩家和 AI
+        # 区分真实玩家和 AI
+        is_ai = info.get("ai_profile_id") is not None
         
         if not is_ai:
             continue

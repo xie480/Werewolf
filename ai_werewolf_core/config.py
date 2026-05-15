@@ -1,6 +1,18 @@
-from typing import List, Any
+from typing import List, Any, Dict
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import computed_field, field_validator, Field
+from pydantic import computed_field, field_validator, Field, BaseModel, model_validator
+
+class ModelConfig(BaseModel):
+    """单个模型的静态配置，支持在 .env 中覆盖"""
+    model_id: str = Field(..., description="模型唯一标识")
+    provider: str = Field(..., description="提供者名称，如 openai、anthropic")
+    name: str = Field(..., description="业务层使用的模型名称")
+    api_key: str = Field(..., description="对应提供者的 API Key")
+    base_url: str = Field(..., description="API 基础 URL")
+    model_name: str = Field(..., description="LLM 实际模型名称")
+    temperature: float = Field(0.7, description="默认温度")
+    max_tokens: int = Field(1024, description="默认最大 token")
+    timeout: float = Field(15.0, description="硬超时（秒）")
 
 class Settings(BaseSettings):
     """
@@ -58,7 +70,57 @@ class Settings(BaseSettings):
     compression_model_key: str = ""
     compression_model_name: str = "gpt-3.5-turbo"
     # 模型配置列表（可在 .env 中覆盖或在运行时动态加载）
-    models: List[Any] = Field(default_factory=list)
+    models: List[ModelConfig] = Field(
+        default_factory=lambda: [
+            ModelConfig(
+                model_id="default-openai",
+                provider="openai",
+                name="GPT-4 Turbo",
+                api_key="",
+                base_url="https://api.openai.com/v1",
+                model_name="gpt-4-turbo",
+                temperature=0.7,
+                max_tokens=1024,
+                timeout=15.0,
+            )
+        ],
+        description="系统支持的 LLM 列表，支持运行时动态扩展",
+    )
+
+    @model_validator(mode='before')
+    @classmethod
+    def parse_models_from_env(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        """从环境变量中解析 MODEL_X_... 配置"""
+        import os
+        models_dict = {}
+        
+        # 遍历所有环境变量和传入的 values
+        all_vars = {**os.environ, **values}
+        
+        for key, value in all_vars.items():
+            key_upper = key.upper()
+            if key_upper.startswith("MODEL_"):
+                parts = key_upper.split("_", 2)
+                if len(parts) >= 3 and parts[1].isdigit():
+                    idx = int(parts[1])
+                    field_name = parts[2].lower()
+                    if idx not in models_dict:
+                        models_dict[idx] = {}
+                    models_dict[idx][field_name] = value
+                    
+        if models_dict:
+            # 如果环境变量中定义了模型，则覆盖默认列表
+            parsed_models = []
+            for idx in sorted(models_dict.keys()):
+                model_data = models_dict[idx]
+                # 确保必填字段存在，如果不存在则跳过或报错
+                if "model_id" in model_data and "provider" in model_data:
+                    parsed_models.append(model_data)
+            
+            if parsed_models:
+                values["models"] = parsed_models
+                
+        return values
 
     @field_validator("debug", mode="before")
     @classmethod
