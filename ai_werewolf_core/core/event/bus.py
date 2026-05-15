@@ -531,6 +531,7 @@ class EventBus:
         agent_id: str,
         start_seq: int = 0,
         count: int = DEFAULT_XRANGE_COUNT,
+        is_god_mode: bool = False,
     ) -> list[Event]:
         """
         为 Agent 提供按权限拉取历史事件的接口（内置可见性过滤）。
@@ -541,12 +542,14 @@ class EventBus:
         可见性过滤规则：
         - PUBLIC 事件对所有 Agent 可见。
         - PRIVATE 和 FACTION 事件仅对 target_agents 列表中的 Agent 可见。
+        - 如果 is_god_mode 为 True，则无视可见性规则，返回所有事件。
 
         Args:
             game_id: 对局 ID。
             agent_id: 请求拉取事件的 Agent ID。
             start_seq: 起始 seq_num（0 表示从最早开始）。
             count: 最大拉取数量。
+            is_god_mode: 是否开启上帝视角（无视可见性限制）。
 
         Returns:
             过滤后的事件列表（按 seq_num 升序排列）。
@@ -574,18 +577,22 @@ class EventBus:
             all_events = stream_events
 
         # Step 3: 按可见性过滤
-        filtered_events: list[Event] = []
-        for event in all_events:
-            if event.visibility == Visibility.PUBLIC:
-                filtered_events.append(event)
-            elif event.visibility in (Visibility.PRIVATE, Visibility.FACTION):
-                if agent_id in event.target_agents:
+        if is_god_mode:
+            filtered_events = all_events
+        else:
+            filtered_events: list[Event] = []
+            for event in all_events:
+                if event.visibility == Visibility.PUBLIC:
                     filtered_events.append(event)
+                elif event.visibility in (Visibility.PRIVATE, Visibility.FACTION):
+                    if agent_id in event.target_agents:
+                        filtered_events.append(event)
 
         logger.debug(
             "events_queried",
             game_id=game_id,
             agent_id=agent_id,
+            is_god_mode=is_god_mode,
             total_events=len(all_events),
             filtered_count=len(filtered_events),
             stream_count=len(stream_events),

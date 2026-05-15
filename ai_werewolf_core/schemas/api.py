@@ -224,3 +224,31 @@ class MatchReportResponse(BaseModel):
     winner: str
     mvp_agent_id: str
     evaluations: List[AgentEvaluationResponse]
+
+
+# ============================================================================
+# Replay 回放系统 Schema
+# ============================================================================
+
+class ReplayPlayerInfo(BaseModel):
+    agent_id: str
+    seat_number: int
+    role: str  # 初始角色，POV视角下非己方角色可能为 "UNKNOWN"
+
+class ReplayInitialState(BaseModel):
+    players: List[ReplayPlayerInfo]
+
+class ReplayPhaseChunk(BaseModel):
+    phase_name: str  # 如 "NIGHT_WOLF_ACT", "DAY_DISCUSSION"
+    events: List[EventResponse]
+
+class ReplayDayChunk(BaseModel):
+    day_num: int
+    phases: List[ReplayPhaseChunk]
+
+class ReplayResponse(BaseModel):
+    game_id: str
+    perspective: str
+    agent_id: Optional[str] = None
+    initial_state: ReplayInitialState
+    timeline: List[ReplayDayChunk]
