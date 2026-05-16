@@ -133,10 +133,8 @@ const handleTest = async (modelId: string) => {
 const handleFormSubmit = async (data: ModelConfigCreate, testAfterSave: boolean) => {
   try {
     if (editingModel.value) {
-      // 编辑逻辑：先删除旧的，再创建新的
-      // 注意：实际生产中最好后端提供 PUT 接口
-      await modelStore.deleteModel(editingModel.value.id);
-      await modelStore.createModel(data);
+      // 编辑逻辑：使用 PUT 更新模型
+      await modelStore.updateModel(data);
       showToast('模型更新成功');
     } else {
       // 新增逻辑

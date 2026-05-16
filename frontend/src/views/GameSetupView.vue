@@ -5,17 +5,23 @@
  * **Why**: 创建对局后先进入座位表，用户为每个座位选择或创建 AI 玩家，
  * 确认后再分配角色并启动游戏。座位卡牌初始均为问号背面。
  *
+ * **修改说明**: 新建 AI 玩家时使用 model_id 下拉框选择模型，
+ * 替代旧的 model_name / model_provider / temperature 手动输入。
+ *
  * 参考: [`docs/plan/前端界面设计方案.md`](../../../docs/plan/前端界面设计方案.md)
  */
 
 import { ref, onMounted } from 'vue'
 import * as aiPlayersApi from '../api/ai_players'
 import type { AIProfileResponse } from '../api/ai_players'
+import { useModelStore } from '../store/models'
 
 const emit = defineEmits<{
   (e: 'startGame', gameId: string): void
   (e: 'back'): void
 }>()
+
+const modelStore = useModelStore()
 
 /** 座位数量（默认 9 人局） */
 const seatCount = ref(9)
@@ -49,9 +55,7 @@ const showCreateForm = ref(false)
 /** 新建 AI 玩家的表单数据 */
 const newPlayerForm = ref({
   name: '',
-  model_name: 'deepseek-v4-flash',
-  model_provider: 'openai',
-  temperature: 0.7,
+  model_id: '',
   system_prompt: '',
 })
 
@@ -80,13 +84,15 @@ function selectForSeat(seatIndex: number, profileId: string | null): void {
 /** 创建新 AI 玩家并自动分配给当前座位 */
 async function handleCreateNewPlayer(): Promise<void> {
   if (!newPlayerForm.value.name.trim()) return
+  if (!newPlayerForm.value.model_id) {
+    errorMsg.value = '请选择一个模型'
+    return
+  }
 
   try {
     const profile = await aiPlayersApi.createAiPlayer({
       name: newPlayerForm.value.name.trim(),
-      model_name: newPlayerForm.value.model_name,
-      model_provider: newPlayerForm.value.model_provider,
-      temperature: newPlayerForm.value.temperature,
+      model_id: newPlayerForm.value.model_id,
       system_prompt: newPlayerForm.value.system_prompt || undefined,
     })
     // 添加到玩家库
@@ -98,9 +104,7 @@ async function handleCreateNewPlayer(): Promise<void> {
     showCreateForm.value = false
     newPlayerForm.value = {
       name: '',
-      model_name: 'deepseek-v4-flash',
-      model_provider: 'openai',
-      temperature: 0.7,
+      model_id: '',
       system_prompt: '',
     }
   } catch (e) {
@@ -166,6 +170,10 @@ function formatStats(stats: AIProfileResponse['stats']): string {
 
 onMounted(() => {
   loadAiPlayers()
+  // 加载模型列表供下拉选择
+  if (modelStore.models.length === 0) {
+    modelStore.fetchModels()
+  }
 })
 </script>
 
@@ -262,27 +270,23 @@ onMounted(() => {
               class="form-input"
               placeholder="玩家名称（必填）"
             />
-            <input
-              v-model="newPlayerForm.model_name"
-              class="form-input"
-              placeholder="模型名称"
-            />
-            <div class="form-row">
-              <input
-                v-model="newPlayerForm.model_provider"
-                class="form-input form-input--small"
-                placeholder="提供商"
-              />
-              <input
-                v-model.number="newPlayerForm.temperature"
-                class="form-input form-input--small"
-                placeholder="温度"
-                type="number"
-                step="0.1"
-                min="0"
-                max="2"
-              />
-            </div>
+            <select
+              v-model="newPlayerForm.model_id"
+              class="form-select"
+              required
+            >
+              <option value="" disabled>选择绑定的模型</option>
+              <option
+                v-for="m in modelStore.models"
+                :key="m.id"
+                :value="m.id"
+              >
+                {{ m.model_name }} ({{ m.provider }})
+              </option>
+            </select>
+            <p v-if="modelStore.models.length === 0" class="form-hint">
+              暂无可用模型，请先在模型管理中添加模型
+            </p>
             <textarea
               v-model="newPlayerForm.system_prompt"
               class="form-textarea"
@@ -402,57 +406,55 @@ onMounted(() => {
 
 .seat-number {
   font-size: 12px;
-  color: #666;
-  margin-bottom: 8px;
+  color: #888;
+  margin-bottom: 4px;
 }
 
 .card-back {
   width: 64px;
-  height: 88px;
+  height: 80px;
   margin: 0 auto 8px;
-  background: linear-gradient(135deg, #2a1a3e, #1a1a3e);
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: linear-gradient(135deg, #1a1a4e, #2d2d6b);
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
+  border: 2px solid #ffd700;
 }
 
 .card-back--empty {
-  background: linear-gradient(135deg, #1a1a2e, #2a1a1a);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(135deg, #2a2a2a, #3a3a3a);
+  border-color: #555;
 }
 
 .card-icon {
   font-size: 28px;
-  opacity: 0.6;
 }
 
 .seat-player-name {
-  font-size: 12px;
-  color: #e0e0e0;
-  word-break: break-all;
+  font-size: 13px;
+  color: #ddd;
+  font-weight: 500;
 }
 
 .seat-player-name--empty {
-  color: #555;
-  font-style: italic;
+  color: #666;
 }
 
+/* 选择面板 */
 .seat-picker {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: #1a1a2e;
   padding: 12px;
-  max-height: 280px;
-  overflow-y: auto;
+  border-top: 1px solid rgba(255,255,255,0.1);
 }
 
 .picker-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
   font-size: 12px;
   color: #aaa;
+  margin-bottom: 8px;
 }
 
 .close-btn {
@@ -460,72 +462,66 @@ onMounted(() => {
   border: none;
   color: #888;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .picker-loading,
 .picker-empty {
-  text-align: center;
+  font-size: 12px;
   color: #666;
-  padding: 20px;
-  font-size: 13px;
+  text-align: center;
+  padding: 12px 0;
 }
 
 .picker-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 160px;
+  max-height: 180px;
   overflow-y: auto;
 }
 
 .picker-item {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  padding: 8px 10px;
+  padding: 8px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: background 0.2s;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  transition: background 0.15s;
+  margin-bottom: 4px;
 }
 
 .picker-item:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255,255,255,0.08);
 }
 
 .picker-item--selected {
-  border-color: #ffd700;
-  background: rgba(255, 215, 0, 0.1);
+  background: rgba(255, 215, 0, 0.15);
+  border: 1px solid rgba(255, 215, 0, 0.3);
 }
 
 .picker-item-name {
   font-size: 13px;
-  color: #e0e0e0;
-  font-weight: 600;
+  color: #ddd;
+  font-weight: 500;
 }
 
 .picker-item-model {
   font-size: 11px;
   color: #888;
+  margin-top: 2px;
 }
 
 .picker-item-stats {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  margin-top: 4px;
 }
 
 .stat-badge {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 4px;
-  color: #ccc;
 }
 
 .stat-games {
-  background: rgba(100, 100, 255, 0.2);
+  background: rgba(100, 149, 237, 0.2);
+  color: #88b0ff;
 }
 
 .stat-winrate {
@@ -534,21 +530,21 @@ onMounted(() => {
 }
 
 .stat-detail {
-  background: rgba(100, 200, 100, 0.15);
-  color: #8c8;
+  background: rgba(100, 200, 100, 0.2);
+  color: #8f8;
 }
 
+/* 创建表单 */
 .create-btn {
   width: 100%;
-  margin-top: 10px;
   padding: 8px;
+  margin-top: 8px;
   background: rgba(255, 215, 0, 0.1);
-  border: 1px dashed rgba(255, 215, 0, 0.3);
+  border: 1px dashed rgba(255, 215, 0, 0.4);
   color: #ffd700;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
-  transition: background 0.2s;
 }
 
 .create-btn:hover {
@@ -556,109 +552,104 @@ onMounted(() => {
 }
 
 .create-form {
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 12px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 8px;
+  gap: 6px;
 }
 
-.form-input {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #e0e0e0;
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  outline: none;
-}
-
-.form-input:focus {
-  border-color: #ffd700;
-}
-
-.form-input--small {
-  flex: 1;
-}
-
-.form-row {
-  display: flex;
-  gap: 8px;
-}
-
+.form-input,
+.form-select,
 .form-textarea {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #e0e0e0;
-  padding: 8px 10px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #ddd;
+  padding: 6px 10px;
   border-radius: 6px;
   font-size: 12px;
-  resize: vertical;
   outline: none;
 }
 
+.form-select {
+  cursor: pointer;
+}
+
+.form-select option {
+  background: #1a1a2e;
+  color: #ddd;
+}
+
+.form-hint {
+  font-size: 11px;
+  color: #ff6b6b;
+  margin: 0;
+}
+
+.form-input:focus,
+.form-select:focus,
 .form-textarea:focus {
   border-color: #ffd700;
 }
 
+.form-textarea {
+  resize: vertical;
+  min-height: 40px;
+}
+
 .confirm-btn {
-  padding: 8px;
+  padding: 6px;
   background: #ffd700;
+  color: #1a1a2e;
   border: none;
-  color: #111;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .confirm-btn:hover {
-  background: #ffed4a;
+  background: #ffe44d;
 }
 
+/* 操作栏 */
 .setup-actions {
   z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .error-msg {
   color: #ff6b6b;
   font-size: 13px;
-  text-align: center;
 }
 
 .btn {
-  padding: 10px 24px;
+  padding: 12px 48px;
   border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
+  border-radius: 12px;
+  font-size: 16px;
   font-weight: 600;
-  transition: all 0.2s;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.btn:active {
+  transform: scale(0.97);
 }
 
 .btn--primary {
-  background: #ffd700;
-  color: #111;
+  background: linear-gradient(135deg, #ffd700, #ffaa00);
+  color: #1a1a2e;
 }
 
 .btn--primary:hover {
-  background: #ffed4a;
+  background: linear-gradient(135deg, #ffe44d, #ffbb33);
 }
 
-.btn--primary:disabled {
-  background: #555;
-  color: #888;
+.btn:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
-}
-
-.btn--large {
-  padding: 14px 48px;
-  font-size: 16px;
 }
 </style>

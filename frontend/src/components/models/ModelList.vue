@@ -8,7 +8,7 @@
     <div v-else-if="models.length === 0" class="empty-state">
       <Database class="w-12 h-12 text-gray-400 mb-4" />
       <h3 class="text-lg font-medium text-gray-900">暂无模型配置</h3>
-      <p class="text-gray-500 mt-1">点击右上角“新增模型”开始配置</p>
+      <p class="text-gray-500 mt-1">点击右上角"新增模型"开始配置</p>
     </div>
 
     <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -21,8 +21,8 @@
         <div class="p-5 border-b border-gray-100 flex justify-between items-start">
           <div>
             <div class="flex items-center gap-2 mb-1">
-              <h3 class="text-lg font-semibold text-gray-900 truncate" :title="model.name">
-                {{ model.name }}
+              <h3 class="text-lg font-semibold text-gray-900 truncate" :title="model.model_name">
+                {{ model.model_name }}
               </h3>
               <span
                 class="px-2 py-0.5 text-xs font-medium rounded-full"
@@ -144,7 +144,7 @@ const getStatusText = (status?: TestStatus) => {
 };
 
 const confirmDelete = (model: ModelConfigResponse) => {
-  if (confirm(`确定要删除模型配置 "${model.name}" 吗？此操作不可恢复。`)) {
+  if (confirm(`确定要删除模型配置 "${model.model_name}" 吗？此操作不可恢复。`)) {
     emit('delete', model.id);
   }
 };

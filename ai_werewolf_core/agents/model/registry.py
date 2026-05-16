@@ -9,22 +9,29 @@ class ModelRegistry:
 
     @classmethod
     async def init(cls) -> None:
-        # 1. 加载 config.py 中的静态列表
-        for cfg in settings.models:
-            cls._registry[cfg.model_id] = cfg.model_dump()
-
-        # 2. 从数据库读取（若存在则覆盖）
+        # Reset registry
+        cls._registry.clear()
         try:
             async with async_session_factory() as session:
                 result = await session.execute(select(ORMModelConfig))
                 db_models = result.scalars().all()
+
+                # 如果 DB 为空，写入默认配置
+                if not db_models:
+                    from ai_werewolf_core.utils.crypto import encrypt_api_key
+                    new_models = []
+                    for c in settings.models:
+                        model_data = c.model_dump(exclude={"model_id"})
+                        if model_data.get("api_key"):
+                            model_data["api_key"] = encrypt_api_key(model_data["api_key"])
+                        new_models.append(ORMModelConfig(**model_data, id=c.model_id))
+                    session.add_all(new_models)
+                    await session.commit()
+                    result = await session.execute(select(ORMModelConfig))
+                    db_models = result.scalars().all()
+
                 for row in db_models:
                     cls._registry[row.id] = row.to_adapter_config()
-
-                # 3. 若 DB 为空，将默认 config 写入
-                if not db_models:
-                    session.add_all([ORMModelConfig(**c.model_dump(exclude={"model_id"}), id=c.model_id) for c in settings.models])
-                    await session.commit()
         except Exception as e:
             import structlog
             logger = structlog.get_logger(__name__)

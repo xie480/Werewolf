@@ -54,6 +54,8 @@ export const useModelStore = defineStore('models', () => {
     }
   };
 
+  // 新增更新模型（PUT） – moved to later section, keep only one definition
+
   const testConnection = async (modelId: string) => {
     testStatus.value[modelId] = 'testing';
     try {
@@ -67,6 +69,29 @@ export const useModelStore = defineStore('models', () => {
     }
   };
 
+  // 新增更新模型（PUT）
+  const updateModel = async (data: ModelConfigCreate) => {
+    isSaving.value = true;
+    error.value = null;
+    try {
+      const updated = await modelsApi.updateModel(data);
+      const idx = models.value.findIndex((m) => m.id === data.id);
+      if (idx > -1) {
+        models.value[idx] = updated;
+      } else {
+        // 防止缺失，直接追加
+        models.value.push(updated);
+      }
+      return updated;
+    } catch (err: any) {
+      error.value = err.message || '更新模型失败';
+      console.error('Failed to update model:', err);
+      throw err;
+    } finally {
+      isSaving.value = false;
+    }
+  };
+
   return {
     models,
     isLoading,
@@ -77,5 +102,6 @@ export const useModelStore = defineStore('models', () => {
     createModel,
     deleteModel,
     testConnection,
+    updateModel,
   };
 });

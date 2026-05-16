@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_werewolf_core.db.session import get_db
-from ai_werewolf_core.db.models import AIPlayerProfile, AIPlayerStats
+from ai_werewolf_core.db.models import AIPlayerProfile, AIPlayerStats, ModelConfig as ORMModelConfig
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.snowflake import get_snowflake
 
@@ -33,14 +33,15 @@ router = APIRouter(prefix="/ai-players", tags=["ai-players"])
 
 
 class AIProfileCreate(BaseModel):
-    """创建 AI 玩家档案请求。"""
+    """创建 AI 玩家档案请求。
+
+    **Why**: 前端通过 model_id 绑定模型，后端查询 ModelConfig 表自动填充
+    model_provider、model_name、temperature 字段，避免前端手动输入出错。
+    """
 
     name: str = Field(..., min_length=1, max_length=64, description="玩家显示名称")
-    avatar_url: Optional[str] = Field(default=None, max_length=255, description="玩家头像URL")
-    model_provider: str = Field(default="openai", max_length=32, description="模型提供商")
-    model_name: str = Field(..., max_length=64, description="具体模型版本")
+    model_id: str = Field(..., description="绑定的模型配置 ID，从 model_config 表查询")
     system_prompt: Optional[str] = Field(default=None, description="特定性格或行为准则 Prompt")
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="模型生成温度参数")
 
 
 class AIProfileUpdate(BaseModel):
@@ -48,10 +49,8 @@ class AIProfileUpdate(BaseModel):
 
     name: Optional[str] = Field(default=None, max_length=64)
     avatar_url: Optional[str] = Field(default=None, max_length=255)
-    model_provider: Optional[str] = Field(default=None, max_length=32)
-    model_name: Optional[str] = Field(default=None, max_length=64)
+    model_id: Optional[str] = Field(default=None, description="绑定的模型配置 ID")
     system_prompt: Optional[str] = Field(default=None)
-    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     is_active: Optional[bool] = Field(default=None)
 
 
@@ -131,6 +130,25 @@ async def _profile_to_response(
         created_at=profile.created_at.isoformat() if profile.created_at else "",
         stats=stats_resp,
     )
+
+
+async def _resolve_model_config(
+    model_id: str, db: AsyncSession
+) -> ORMModelConfig:
+    """根据 model_id 查询 ModelConfig 表，不存在则抛出 400 异常。
+
+    **Why**: 确保 AI 玩家只能绑定已注册的模型，避免引用无效模型 ID。
+    """
+    result = await db.execute(
+        select(ORMModelConfig).where(ORMModelConfig.id == model_id)
+    )
+    model = result.scalars().first()
+    if not model:
+        raise HTTPException(
+            status_code=400,
+            detail=f"模型配置 [{model_id}] 不存在，请先创建该模型",
+        )
+    return model
 
 
 # ============================================================================
@@ -214,31 +232,37 @@ async def create_ai_player(
 ) -> AIProfileResponse:
     """创建新的 AI 玩家档案。
 
-    自动生成 Snowflake ID，同时创建对应的空统计数据记录。
+    **修改说明**: 前端传入 model_id，后端查询 ModelConfig 表获取
+    model_provider、model_name、temperature 字段写入 AIPlayerProfile，
+    不再接受前端直接传入这些字段，确保模型信息一致性。
 
     Args:
-        config: 玩家档案配置。
+        config: 玩家档案配置（含 model_id）。
 
     Returns:
         创建后的玩家档案（含初始统计数据）。
     """
     try:
-        # 生成雪花 ID
+        # 1. 校验并查询模型配置
+        model_cfg = await _resolve_model_config(config.model_id, db)
+
+        # 2. 生成雪花 ID
         profile_id = get_snowflake().next_id()
 
+        # 3. 创建 AI 玩家档案，模型信息从 ModelConfig 获取
         profile = AIPlayerProfile(
             id=profile_id,
             name=config.name,
-            avatar_url=config.avatar_url,
-            model_provider=config.model_provider,
-            model_name=config.model_name,
+            avatar_url=None,
+            model_provider=model_cfg.provider,
+            model_name=model_cfg.model_name,
             system_prompt=config.system_prompt,
-            temperature=config.temperature,
+            temperature=model_cfg.temperature,
             is_active=True,
         )
         db.add(profile)
 
-        # 同时创建初始统计数据
+        # 4. 同时创建初始统计数据
         stats = AIPlayerStats(
             player_id=profile_id,
             total_games=0,
@@ -254,9 +278,11 @@ async def create_ai_player(
         await db.commit()
         await db.refresh(profile)
 
-        logger.info("ai_player_created", profile_id=profile_id, name=config.name)
+        logger.info("ai_player_created", profile_id=profile_id, name=config.name, model_id=config.model_id)
         return await _profile_to_response(profile, stats)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("create_ai_player_failed", error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=f"创建 AI 玩家失败: {str(e)}")
@@ -269,6 +295,9 @@ async def update_ai_player(
     db: AsyncSession = Depends(get_db),
 ) -> AIProfileResponse:
     """更新 AI 玩家档案信息。
+
+    **修改说明**: 如果提供了 model_id，则查询 ModelConfig 表并同步更新
+    model_provider、model_name、temperature 字段。
 
     Args:
         profile_id: AI 玩家档案 ID。
@@ -286,9 +315,22 @@ async def update_ai_player(
         if not profile:
             raise HTTPException(status_code=404, detail=f"AI 玩家 [{profile_id}] 不存在")
 
-        update_data = update.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(profile, field, value)
+        # 更新基本字段
+        if update.name is not None:
+            profile.name = update.name
+        if update.avatar_url is not None:
+            profile.avatar_url = update.avatar_url
+        if update.system_prompt is not None:
+            profile.system_prompt = update.system_prompt
+        if update.is_active is not None:
+            profile.is_active = update.is_active
+
+        # 如果提供了 model_id，查询 ModelConfig 并同步更新模型字段
+        if update.model_id is not None:
+            model_cfg = await _resolve_model_config(update.model_id, db)
+            profile.model_provider = model_cfg.provider
+            profile.model_name = model_cfg.model_name
+            profile.temperature = model_cfg.temperature
 
         await db.commit()
         await db.refresh(profile)

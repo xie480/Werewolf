@@ -3,6 +3,9 @@
  *
  * **Why**: 在创建对局前，用户需要查看和管理 AI 玩家档案库，
  * 为每个座位选择或创建对应的 AI 玩家。
+ *
+ * **修改说明**: 创建/更新时使用 model_id 替代 model_provider/model_name/temperature，
+ * 后端自动从 ModelConfig 表查询并填充这些字段。
  */
 
 import { apiGet, apiPost, apiPut, apiDelete } from './client'
@@ -40,22 +43,19 @@ export interface AIProfileListResponse {
   total: number
 }
 
+/** 创建 AI 玩家请求：使用 model_id 绑定模型 */
 export interface AIProfileCreateRequest {
   name: string
-  avatar_url?: string
-  model_provider?: string
-  model_name: string
+  model_id: string
   system_prompt?: string
-  temperature?: number
 }
 
+/** 更新 AI 玩家请求：使用 model_id 绑定模型 */
 export interface AIProfileUpdateRequest {
   name?: string
   avatar_url?: string
-  model_provider?: string
-  model_name?: string
+  model_id?: string
   system_prompt?: string
-  temperature?: number
   is_active?: boolean
 }
 

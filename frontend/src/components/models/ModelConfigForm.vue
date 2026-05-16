@@ -33,17 +33,6 @@
             </div>
 
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">显示名称 <span class="text-red-500">*</span></label>
-              <input 
-                v-model="formData.name" 
-                type="text" 
-                required
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                placeholder="例如: GPT-4 Turbo"
-              />
-            </div>
-
-            <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">供应商 <span class="text-red-500">*</span></label>
               <select 
                 v-model="formData.provider"
@@ -55,6 +44,18 @@
                 <option value="Local">Local / Ollama</option>
                 <option value="Other">Other</option>
               </select>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">模型名称 <span class="text-red-500">*</span></label>
+              <input 
+                v-model="formData.model_name" 
+                type="text" 
+                required
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                placeholder="例如: gpt-4-turbo"
+              />
+              <p class="mt-1 text-xs text-gray-500">用于展示和识别的模型名称，也作为实际调用的模型标识</p>
             </div>
           </div>
 
@@ -101,17 +102,6 @@
           <!-- 推理参数 -->
           <div class="space-y-4 pt-2">
             <h3 class="text-sm font-medium text-gray-900 border-b pb-2">推理参数</h3>
-            
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Model Name <span class="text-red-500">*</span></label>
-              <input 
-                v-model="formData.model_name" 
-                type="text" 
-                required
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                placeholder="例如: gpt-4-turbo"
-              />
-            </div>
 
             <div>
               <div class="flex justify-between mb-1">
@@ -205,7 +195,6 @@ const showApiKey = ref(false);
 const defaultFormData: ModelConfigCreate = {
   id: '',
   provider: 'OpenAI',
-  name: '',
   api_key: '',
   base_url: '',
   model_name: '',
@@ -235,8 +224,8 @@ const handleClose = () => {
 };
 
 const submitForm = (testAfterSave: boolean) => {
-  // 简单表单校验
-  if (!formData.id || !formData.name || !formData.provider || !formData.base_url || !formData.model_name) {
+  // 简单表单校验（去掉 name 校验）
+  if (!formData.id || !formData.provider || !formData.base_url || !formData.model_name) {
     alert('请填写所有必填项');
     return;
   }
