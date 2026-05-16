@@ -64,6 +64,15 @@ Write-Host "------------------------------------------------"
 Write-Host ""
 
 # --- Backend (background job) ---
+# 先检查端口 8000 是否被占用，如果被 node.exe (Vite) 或其他进程占用则释放
+Write-Host "[Backend] Checking port 8000..."
+$portProcess = netstat -ano | findstr ":8000 " | findstr LISTENING
+if ($portProcess) {
+    $pidToKill = ($portProcess -split '\s+')[-1]
+    Write-Host "[Backend] Port 8000 is occupied by PID $pidToKill, releasing..." -ForegroundColor Yellow
+    taskkill /F /PID $pidToKill 2>&1 | Out-Null
+    Start-Sleep -Seconds 1
+}
 Write-Host "[Backend] Starting FastAPI on port 8000..."
 $backendJob = Start-Job -Name "WerewolfBackend" -ScriptBlock {
     param($dir)

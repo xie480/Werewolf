@@ -37,7 +37,7 @@
               <select 
                 v-model="formData.provider"
                 required
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white text-gray-900"
               >
                 <option value="OpenAI">OpenAI</option>
                 <option value="Anthropic">Anthropic</option>
@@ -52,7 +52,7 @@
                 v-model="formData.model_name" 
                 type="text" 
                 required
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900"
                 placeholder="例如: gpt-4-turbo"
               />
               <p class="mt-1 text-xs text-gray-500">用于展示和识别的模型名称，也作为实际调用的模型标识</p>
@@ -69,7 +69,7 @@
                 v-model="formData.base_url" 
                 type="url" 
                 required
-                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900"
                 placeholder="https://api.openai.com/v1"
               />
             </div>
@@ -81,7 +81,7 @@
                   v-model="formData.api_key" 
                   :type="showApiKey ? 'text' : 'password'" 
                   :required="!isEdit"
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm pr-10"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm pr-10 text-gray-900"
                   :placeholder="isEdit ? '•••••••••••••••• (留空表示不修改)' : 'sk-...'"
                 />
                 <button 
@@ -123,7 +123,7 @@
                   v-model.number="formData.max_tokens" 
                   type="number" 
                   min="1"
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900"
                 />
               </div>
               <div>
@@ -132,7 +132,7 @@
                   v-model.number="formData.timeout" 
                   type="number" 
                   min="1"
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900"
                 />
               </div>
             </div>

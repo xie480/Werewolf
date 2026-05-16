@@ -52,7 +52,13 @@ echo   Starting services...
 echo ------------------------------------------------
 echo.
 
-:: Launch backend in background
+:: Launch backend in background（先释放被占用的端口）
+echo [Backend] Checking port 8000...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000 " ^| findstr LISTENING') do (
+    echo [Backend] Port 8000 is occupied by PID %%a, releasing...
+    taskkill /F /PID %%a >nul 2>&1
+    timeout /t 1 /nobreak >nul
+)
 echo [Backend] Starting FastAPI on port 8000...
 start /b "Backend" cmd /c "cd /d %~dp0 && uvicorn ai_werewolf_core.main:app --reload --host 0.0.0.0 --port 8000"
 
