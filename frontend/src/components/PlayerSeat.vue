@@ -65,7 +65,7 @@ const aliveClass = computed(() => ({
 
     <!-- 玩家信息 -->
     <div class="player-info">
-      <span class="player-id">{{ player.player_id }}</span>
+      <span class="player-id">{{ player.name }}</span>
       <span class="seat-number">座位 {{ player.seat_number }}</span>
     </div>
   </div>

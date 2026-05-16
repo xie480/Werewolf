@@ -69,7 +69,16 @@ echo   Backend API docs : http://localhost:8000/docs
 echo   Frontend app     : http://localhost:5173
 echo   WebSocket        : ws://localhost:8000/ws/games/{game_id}
 echo.
-echo   Press Ctrl+C and answer Y to stop all services.
+echo   !!! IMPORTANT !!!
+echo   Game auto-advance requires Celery Worker.
+echo   Open a NEW terminal and run:
+echo.
+echo      start_celery.bat
+echo.
+echo   Or manually:
+echo      celery -A ai_werewolf_core.worker.celery_app worker --loglevel=info -P eventlet
+echo.
+echo   Press Ctrl+C to stop all services.
 echo   Closing this window will also stop all services.
 echo ================================================
 echo.

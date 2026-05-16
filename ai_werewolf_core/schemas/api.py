@@ -82,13 +82,14 @@ class PlayerResponse(BaseModel):
     """单个玩家信息响应。
 
     **Why**: API 层暴露角色为字符串值，不暴露内部 `Role` 枚举对象，
-    确保前后端解耦。
+    确保前后端解耦。`name` 字段为玩家可读名称（来自 AI 档案或默认生成）。
     """
 
     player_id: str
     seat_number: int
     role: str  # API 层暴露角色字符串，如 "WEREWOLF"、"SEER"
     is_alive: bool
+    name: str = ""  # 玩家名称，为空时前端回退显示 player_id
 
 
 class PlayerListResponse(BaseModel):

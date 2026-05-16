@@ -70,7 +70,13 @@ const latestSpeech = computed(() => {
   for (let i = store.events.length - 1; i >= 0; i--) {
     const e = store.events[i]
     if (e.event_type === EventType.SPEECH_EVENT && e.content) {
-      return { speakerId: e.speaker_id ?? '', content: e.content }
+      const speakerId = e.speaker_id ?? ''
+      const speaker = store.players.find(p => p.player_id === speakerId)
+      return {
+        speakerId,
+        speakerName: speaker?.name ?? speakerId,
+        content: e.content,
+      }
     }
   }
   return null
@@ -148,7 +154,11 @@ const statusLabel = computed(() => {
       <!-- 中央发言区域 -->
       <div class="center-area">
         <div v-if="latestSpeech" class="speech-area">
-          <SpeechBubble :speaker-id="latestSpeech.speakerId" :content="latestSpeech.content" />
+          <SpeechBubble
+            :speaker-id="latestSpeech.speakerId"
+            :speaker-name="latestSpeech.speakerName"
+            :content="latestSpeech.content"
+          />
         </div>
       </div>
 
@@ -257,6 +267,32 @@ const statusLabel = computed(() => {
   font-weight: bold;
   color: #ffd700;
   letter-spacing: 2px;
+}
+
+.countdown-badge {
+  margin-left: 12px;
+  padding: 2px 12px;
+  background: rgba(255, 215, 0, 0.2);
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffd700;
+  min-width: 36px;
+  text-align: center;
+  display: inline-block;
+  animation: countdown-pulse 1s ease-in-out infinite;
+}
+
+@keyframes countdown-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
 }
 
 /* 主战场布局 */

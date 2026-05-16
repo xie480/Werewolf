@@ -13,6 +13,8 @@ const props = defineProps<{
   content: string
   /** 发言人 ID */
   speakerId: string
+  /** 发言人可读名称（优先显示，无则回退显示 speakerId） */
+  speakerName?: string
   /** 打字速度（毫秒/字符），默认 30ms */
   speed?: number
 }>()
@@ -87,7 +89,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="speech-bubble">
     <div class="speech-header">
-      <span class="speaker-name">{{ speakerId }}</span>
+      <span class="speaker-name">{{ speakerName || speakerId }}</span>
       <button
         v-if="!isDone"
         class="skip-btn"

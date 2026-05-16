@@ -310,6 +310,7 @@ export const useGameStore = defineStore('game', () => {
       seat_number: p.seat_number,
       role: p.role,
       is_alive: p.is_alive,
+      name: p.name || `玩家 ${p.seat_number}`,  // 使用后端返回的 name，无则默认
       role_image: getRoleImage(p.role),
       is_speaking: false,
     }))

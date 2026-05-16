@@ -50,7 +50,8 @@ const latestSpeech = computed(() => {
   for (let i = history.length - 1; i >= 0; i--) {
     const e = history[i]
     if (e.event_type === 'SPEECH_EVENT' && e.content) {
-      return { speakerId: e.speaker_id ?? '', content: e.content }
+      const speakerId = e.speaker_id ?? ''
+      return { speakerId, speakerName: getPlayerName(speakerId), content: e.content }
     }
   }
   return null
@@ -83,6 +84,12 @@ const currentSpeakerId = computed(() => {
   const speaker = players.value.find(p => p.is_speaking)
   return speaker ? speaker.player_id : null
 })
+
+/** 根据 player_id 获取玩家名称 */
+function getPlayerName(playerId: string): string {
+  const player = players.value.find(p => p.player_id === playerId)
+  return player?.name ?? playerId
+}
 </script>
 
 <template>
@@ -119,7 +126,7 @@ const currentSpeakerId = computed(() => {
       <!-- 中央发言区域 -->
       <div class="center-area">
         <div v-if="latestSpeech" class="speech-area">
-          <SpeechBubble :speaker-id="latestSpeech.speakerId" :content="latestSpeech.content" />
+          <SpeechBubble :speaker-id="latestSpeech.speakerId" :speaker-name="latestSpeech.speakerName" :content="latestSpeech.content" />
         </div>
       </div>
 

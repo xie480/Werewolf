@@ -52,6 +52,8 @@ export interface PlayerState {
   seat_number: number
   role: string
   is_alive: boolean
+  /** 玩家可读名称 */
+  name: string
   /** 身份牌图片路径（从 ROLE_IMAGE_MAP 自动查表） */
   role_image: string
   /** 是否正在发言（用于高亮渲染） */

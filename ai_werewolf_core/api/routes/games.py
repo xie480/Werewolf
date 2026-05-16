@@ -129,6 +129,7 @@ async def _build_players_dict(request: CreateGameRequest) -> dict[str, dict]:
         
         ai_profile_id = None
         model_id = "default_model"
+        player_name = f"玩家 {seat}"  # 默认名称
         
         # 处理玩家设置
         if request.players and seat - 1 < len(request.players):
@@ -138,9 +139,11 @@ async def _build_players_dict(request: CreateGameRequest) -> dict[str, dict]:
                 ai_profile_id = p_setup.player_id
                 if ai_profile_id in profile_map:
                     model_id = profile_map[ai_profile_id].model_id or "default_model"
+                    player_name = profile_map[ai_profile_id].name or player_name
             elif p_setup.type == 'dynamic' and p_setup.config:
                 # 使用动态配置
                 model_id = p_setup.config.get("model_name", "default_model")
+                player_name = p_setup.config.get("name", player_name)
                 
         # 将玩家信息添加到字典中
         players[player_id] = {
@@ -149,6 +152,7 @@ async def _build_players_dict(request: CreateGameRequest) -> dict[str, dict]:
             "faction": faction,
             "ai_profile_id": ai_profile_id,
             "model_id": model_id,
+            "name": player_name,  # 玩家可读名称
         }
 
     logger.info(

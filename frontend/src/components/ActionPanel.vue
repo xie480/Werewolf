@@ -28,6 +28,12 @@ const selectedAction = ref<string>(ActionType.PASS)
 /** 是否正在提交 */
 const isSubmitting = ref(false)
 
+/** 根据 player_id 获取玩家名称 */
+function getPlayerName(playerId: string): string {
+  const player = store.players.find(p => p.player_id === playerId)
+  return player?.name ?? playerId
+}
+
 // ============================================================================
 // 计算属性：决定面板渲染内容
 // ============================================================================
@@ -229,7 +235,7 @@ async function handleStartGame(): Promise<void> {
           :disabled="isLocked"
           @click="handleVote(player.player_id)"
         >
-          投 {{ player.player_id }}
+          投 {{ player.name }}
         </button>
         <button
           class="action-btn action-btn--pass"
@@ -271,7 +277,7 @@ async function handleStartGame(): Promise<void> {
             :key="player.player_id"
             :value="player.player_id"
           >
-            {{ player.player_id }}
+            {{ player.name }}
           </option>
         </select>
 
