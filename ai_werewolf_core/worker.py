@@ -93,5 +93,22 @@ def init_worker(**kwargs):
     # 运行异步初始化
     from ai_werewolf_core.utils.asyncio_utils import run_async
     run_async(_init())
+    
+    # 注册事件分发器
+    from ai_werewolf_core.core.event.bus import event_bus
+    from ai_werewolf_core.tasks.dispatch import register_dispatchers
+    register_dispatchers(event_bus)
+    logger.info("dispatchers_registered_in_worker")
+    
+    # 启动 EventBus Pub/Sub 监听，接收跨进程事件广播
+    # NOTE: 必须启动监听，否则 Worker 无法收到其他进程发布的事件
+    # 从而 on_phase_transition 不会触发，Agent 任务不会被分发
+    try:
+        async def _start_listening():
+            await event_bus.start_listening()
+            logger.info("event_bus_listening_started_in_worker")
+        run_async(_start_listening())
+    except Exception as e:
+        logger.error("event_bus_listening_failed_in_worker", error=str(e), exc_info=True)
 
 logger.info("celery_app_initialized", broker=settings.redis_url)

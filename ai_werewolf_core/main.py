@@ -70,10 +70,15 @@ async def lifespan(app: FastAPI):
     await ModelRegistry.init()
     logger.info("model_registry_initialized")
 
+    # 启动 EventBus 监听
+    await event_bus.start_listening()
+    logger.info("event_bus_listening_started")
+
     yield
 
     # 关闭
     logger.info("werewolf_game_engine_shutting_down")
+    await event_bus.stop_listening()
     try:
         await RedisClientManager.close()
         logger.info("redis_connections_closed")

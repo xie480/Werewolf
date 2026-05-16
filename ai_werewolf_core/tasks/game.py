@@ -142,10 +142,12 @@ async def _advance_phase_impl(self, game_id: str, expected_phase: str) -> dict:
     """
     # ── Step 1: 并发防重校验 ──
     from ai_werewolf_core.core.engine.game_engine import GameEngine
-    from ai_werewolf_core.core.event.bus import EventBus
+    # NOTE: 必须使用全局单例 event_bus，不能创建本地 EventBus 实例
+    # 因为 on_phase_transition (Agent任务分发器) 注册在全局单例上
+    from ai_werewolf_core.core.event.bus import event_bus as global_event_bus
     from ai_werewolf_core.schemas.enums import GamePhase
 
-    event_bus = EventBus()
+    event_bus = global_event_bus
 
     # 检查当前阶段是否与预期一致
     from ai_werewolf_core.core.engine.state_machine import PhaseStateMachine

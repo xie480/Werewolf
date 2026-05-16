@@ -16,7 +16,7 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type {
   GameDetailResponse,
   GameStatusResponse,
@@ -149,6 +149,15 @@ export const useGameStore = defineStore('game', () => {
       countdownResolve = null
     }
   }
+
+  // 监听阶段和状态变化，自动启动倒计时
+  watch([phase, status], ([newPhase, newStatus]) => {
+    if (newStatus === GameStatus.RUNNING && newPhase) {
+      startPhaseCountdown()
+    } else if (newStatus !== GameStatus.RUNNING) {
+      stopPhaseCountdown()
+    }
+  }, { immediate: true })
 
   // ------------------------------------------------------------------
   // 计算属性
@@ -399,8 +408,6 @@ export const useGameStore = defineStore('game', () => {
       case EventType.PHASE_TRANSITION_EVENT:
         if (event.payload.new_phase) {
           phase.value = event.payload.new_phase as string
-          // 后端推进阶段后，重新启动 UI 倒计时
-          startPhaseCountdown()
         }
         break
 

@@ -24,6 +24,8 @@
 """
 
 import json
+import uuid
+import asyncio
 from typing import Callable, Optional, Awaitable, Union, List
 
 import redis.asyncio as aioredis
@@ -76,15 +78,18 @@ class EventBus:
     """
 
     def __init__(self, seq_generator: Optional[RedisSeqGenerator] = None):
+        self.instance_id = str(uuid.uuid4())
+        self._pubsub_task: Optional[asyncio.Task] = None
+        
         # Redis 时序发号器 (支持依赖注入便于测试)
         self._seq_generator: Optional[RedisSeqGenerator] = seq_generator
 
         # Redis 客户端引用 (懒初始化)
         self._redis_client: Optional[aioredis.Redis] = None
 
-        # 订阅者字典：EventType -> List[EventHandler]
+        # 订阅者字典：str -> List[EventHandler]
         from collections import defaultdict
-        self._subscribers: dict[EventType, list[EventHandler]] = defaultdict(list)
+        self._subscribers: dict[str, list[EventHandler]] = defaultdict(list)
         # 全局订阅者（订阅所有事件）
         self._global_subscribers: list[EventHandler] = []
 
@@ -92,6 +97,73 @@ class EventBus:
         self.subscribe_all(self._default_log_subscriber)
         # 添加数据库持久化订阅者，实现事件溯源存储
         self.subscribe_all(self._persist_to_db)
+
+    async def start_listening(self) -> None:
+        """启动 Redis Pub/Sub 监听，用于跨进程事件分发。"""
+        if self._pubsub_task is not None:
+            return
+            
+        redis = await self._get_redis()
+        pubsub = redis.pubsub()
+        await pubsub.subscribe("werewolf:events:pubsub")
+        
+        async def _listener():
+            try:
+                logger.info("pubsub_listener_started")
+                async for message in pubsub.listen():
+                    if message["type"] == "message":
+                        try:
+                            data = json.loads(message["data"])
+                            sender_id = data.get("sender_id")
+                            if sender_id == self.instance_id:
+                                continue  # 忽略自己发送的消息
+                                
+                            event = Event.model_validate(data["event"])
+                            logger.info("pubsub_message_received", event_id=event.event_id, event_type=event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type))
+                            await self._dispatch_to_subscribers(event, is_remote=True)
+                        except Exception as e:
+                            logger.error("pubsub_message_handling_failed", error=str(e), exc_info=True)
+            except asyncio.CancelledError:
+                logger.info("pubsub_listener_cancelled")
+                await pubsub.unsubscribe("werewolf:events:pubsub")
+            except Exception as e:
+                logger.error("pubsub_listener_crashed", error=str(e), exc_info=True)
+                
+        self._pubsub_task = asyncio.create_task(_listener())
+
+    async def stop_listening(self) -> None:
+        """停止 Redis Pub/Sub 监听。"""
+        if self._pubsub_task:
+            self._pubsub_task.cancel()
+            try:
+                await self._pubsub_task
+            except asyncio.CancelledError:
+                pass
+            self._pubsub_task = None
+
+    async def _dispatch_to_subscribers(self, event: Event, is_remote: bool = False) -> None:
+        """分发事件给本地订阅者。"""
+        handlers = list(self._global_subscribers)
+        key = event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type)
+        handlers.extend(self._subscribers.get(key, []))
+
+        for handler in handlers:
+            # 如果是远程事件，跳过持久化，因为发布方已经持久化过了
+            if is_remote and getattr(handler, '__name__', '') == '_persist_to_db':
+                continue
+                
+            try:
+                res = handler(event)
+                if hasattr(res, '__await__'):
+                    await res
+            except Exception as e:
+                logger.error(
+                    "事件处理函数执行异常",
+                    event_id=event.event_id,
+                    event_type=event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
+                    error=str(e),
+                    exc_info=True,
+                )
 
     # ------------------------------------------------------------------
     # Redis 客户端懒初始化
@@ -473,24 +545,19 @@ class EventBus:
             # 已在 _xadd_event 内部记录 CRITICAL 日志，此处静默吞下
             pass
 
-        # 3. 分发给订阅者
-        handlers = list(self._global_subscribers)
-        handlers.extend(self._subscribers.get(event.event_type, []))
+        # 2.5 发布到 Redis Pub/Sub 供跨进程订阅
+        try:
+            redis = await self._get_redis()
+            pubsub_msg = {
+                "sender_id": self.instance_id,
+                "event": event.model_dump(mode="json")
+            }
+            await redis.publish("werewolf:events:pubsub", json.dumps(pubsub_msg))
+        except Exception as e:
+            logger.warning("redis_pubsub_publish_failed", error=str(e))
 
-        for handler in handlers:
-            try:
-                res = handler(event)
-                if hasattr(res, '__await__'):  # 更安全的协程检测
-                    await res
-            except Exception as e:
-                logger.info(f"[DIAGNOSIS] event.event_type type: {type(event.event_type)}, value: {event.event_type}")
-                logger.error(
-                    "事件处理函数执行异常",
-                    event_id=event.event_id,
-                    event_type=event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
-                    error=str(e),
-                    exc_info=True,
-                )
+        # 3. 分发给本地订阅者
+        await self._dispatch_to_subscribers(event)
 
     # ------------------------------------------------------------------
     # 订阅管理
@@ -503,10 +570,11 @@ class EventBus:
             event_type: 要订阅的事件类型。
             handler: 事件处理回调函数。
         """
-        self._subscribers[event_type].append(handler)
+        key = event_type.value if hasattr(event_type, 'value') else str(event_type)
+        self._subscribers[key].append(handler)
         logger.debug(
             "event_subscribe",
-            event_type=event_type.value,
+            event_type=key,
             handler=handler.__name__ if hasattr(handler, '__name__') else str(handler),
         )
 

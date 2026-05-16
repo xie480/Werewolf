@@ -16,6 +16,8 @@ async def on_phase_transition(event: Event):
     payload = event.payload
     new_phase_str = payload.get("new_phase")
     round_num = payload.get("round", 1)
+    
+    logger.info("on_phase_transition_called", game_id=game_id, new_phase=new_phase_str)
 
     if not new_phase_str:
         return
@@ -54,10 +56,10 @@ async def on_phase_transition(event: Event):
         if not can_act:
             continue
             
-        # 区分真实玩家和 AI
-        is_ai = info.get("ai_profile_id") is not None
+        # 区分真实玩家和 AI (目前全为 AI)
+        is_human = info.get("is_human", False)
         
-        if not is_ai:
+        if is_human:
             continue
             
         logger.info("dispatching_agent_task", game_id=game_id, player_id=player_id, phase=new_phase.value)

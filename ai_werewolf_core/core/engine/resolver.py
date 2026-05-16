@@ -169,6 +169,63 @@ class ActionResolver:
         self._logger.info("night_cycle_begin")
 
     # ------------------------------------------------------------------
+    # 狼人投票结算
+    # ------------------------------------------------------------------
+
+    def calculate_wolf_target(self) -> None:
+        """结算狼人投票，统计所有存活狼人的刀人投票，确定最终刀人目标。
+
+        **Why (延迟结算)**: 狼人行动阶段所有狼人提交 WOLF_KILL 动作后，
+        需要统一计票而非立即生效。得票最高的玩家成为刀人目标，
+        平局则无人被杀（平安夜）。
+
+        计票规则:
+        1. 统计所有存活狼人提交的 WOLF_KILL 动作，按 target_id 计数。
+        2. 得票最高且票数唯一的 player_id 成为刀人目标，写入 pending_deaths。
+        3. 若有平票（最高票有多人），则无人被刀（_current_night_wolf_target = None）。
+        4. 狼人也可选择 PASS 放弃投票（不参与计票）。
+
+        此方法在 GameEngine.advance_phase() 退出 NIGHT_WOLF_ACT 阶段时被调用。
+        """
+        wolf_kill_votes: Dict[str, int] = {}
+        for action in self.pending_actions:
+            if action.action_type == ActionType.WOLF_KILL.value and action.target_id is not None:
+                wolf_kill_votes[action.target_id] = wolf_kill_votes.get(action.target_id, 0) + 1
+
+        if not wolf_kill_votes:
+            # 所有狼人都选择了 PASS，无人被刀
+            self._current_night_wolf_target = None
+            self._logger.info("wolf_vote_result_no_votes")
+            return
+
+        # 按得票数降序排列
+        sorted_votes = sorted(wolf_kill_votes.items(), key=lambda x: x[1], reverse=True)
+        highest_vote_count = sorted_votes[0][1]
+
+        # 检查是否有平票（最高票数被多人共享）
+        tied_targets = [target for target, count in sorted_votes if count == highest_vote_count]
+        if len(tied_targets) > 1:
+            # 平局：无人被刀
+            self._current_night_wolf_target = None
+            self._logger.info(
+                "wolf_vote_result_tie",
+                tied_targets=tied_targets,
+                vote_count=highest_vote_count,
+            )
+            return
+
+        # 得票最高者成为刀人目标
+        final_target = tied_targets[0]
+        self._current_night_wolf_target = final_target
+        self.pending_deaths[final_target] = ActionType.WOLF_KILL
+        self._logger.info(
+            "wolf_vote_result",
+            target_id=final_target,
+            vote_count=highest_vote_count,
+            total_votes=len(wolf_kill_votes),
+        )
+
+    # ------------------------------------------------------------------
     # 动作接收与校验
     # ------------------------------------------------------------------
 
@@ -329,11 +386,14 @@ class ActionResolver:
             actor_role: 行动者的角色实例。
         """
         if action.action_type == ActionType.WOLF_KILL.value and action.target_id is not None:
-            self.pending_deaths[action.target_id] = ActionType.WOLF_KILL
-            self._current_night_wolf_target = action.target_id
+            # 狼人投票阶段：不立即更新 pending_deaths，而是在所有狼人提交完毕后
+            # 通过 calculate_wolf_target() 统一计票，得票最高者成为刀人目标。
+            # 平局时无人被杀（目标为 None）。
+            # Why: 标准狼人杀规则——狼人进行投票，平局则 pass，否则得票最高者被杀死。
             self._logger.info(
-                "draft_wolf_kill",
+                "draft_wolf_kill_recorded",
                 target_id=action.target_id,
+                actor_id=action.actor_id,
             )
 
         elif action.action_type == ActionType.WITCH_SAVE.value and action.target_id is not None:
@@ -616,7 +676,12 @@ class ActionResolver:
     def _is_wolf_phase_completed(
         self, roles: Dict[str, BaseRole]
     ) -> bool:
-        """检查所有存活狼人是否已提交刀人动作。"""
+        """检查所有存活狼人是否已提交刀人动作（允许 PASS 跳过投票）。
+
+        判断逻辑：
+        - 每个存活狼人在 pending_actions 中必须有 WOLF_KILL 或 PASS 动作记录。
+        - Why: 狼人可以弃票（PASS），不参与刀人投票也算作已完成行动。
+        """
         from ai_werewolf_core.schemas.enums import Role
 
         alive_wolves = [
@@ -628,7 +693,7 @@ class ActionResolver:
 
         submitted_wolves = {
             a.actor_id for a in self.pending_actions
-            if a.action_type == ActionType.WOLF_KILL.value
+            if a.action_type in (ActionType.WOLF_KILL.value, ActionType.PASS.value)
         }
         return set(alive_wolves).issubset(submitted_wolves)
 

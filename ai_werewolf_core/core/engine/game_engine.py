@@ -528,6 +528,11 @@ class GameEngine:
                     eval_result.winner.value if eval_result.winner else None
                 )
 
+        elif old_phase == GamePhase.NIGHT_WOLF_ACT:
+            # 狼人行动阶段结束：执行狼人投票结算
+            # Why: 标准狼人杀规则——狼人投票选出刀人目标，平局则无人被杀
+            self.resolver.calculate_wolf_target()
+
         elif old_phase in VOTE_PHASES:
             vote_result = await self.vote_manager.resolve_vote(
                 self.roles, round_num
