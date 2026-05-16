@@ -4,7 +4,7 @@
 >
 > **数据源**: 基于 `ai_werewolf_core/db/models.py` 中的 SQLAlchemy ORM 模型自动提取。
 >
-> **最后更新**: 2026-05-15
+> **最后更新**: 2026-05-16
 
 ---
 
@@ -113,21 +113,22 @@
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
-| `id` | `VARCHAR(64)` | `PRIMARY KEY` | 模型唯一标识 |
+| `id` | `VARCHAR(64)` | `PRIMARY KEY` | 模型唯一标识，创建后不可修改 |
 | `provider` | `VARCHAR(32)` | `NOT NULL` | 提供者名称 |
-| `name` | `VARCHAR(64)` | `NOT NULL` | 业务层使用的模型名称 |
-| `api_key` | `VARCHAR(255)` | `NOT NULL` | API Key |
+| `api_key` | `VARCHAR(255)` | `NOT NULL` | API Key（数据库中以加密形式存储） |
 | `base_url` | `VARCHAR(255)` | `NOT NULL` | API 基础 URL |
-| `model_name` | `VARCHAR(64)` | `NOT NULL` | LLM 实际模型名称 |
+| `model_name` | `VARCHAR(64)` | `NOT NULL` | LLM 实际模型名称，也是业务层唯一标识 |
 | `temperature` | `FLOAT` | `DEFAULT 0.7` | 默认温度 |
 | `max_tokens` | `INTEGER` | `DEFAULT 1024` | 默认最大 token |
 | `timeout` | `FLOAT` | `DEFAULT 15.0` | 硬超时（秒） |
+
+**修改说明**: 删除了冗余的 `name` 列，统一使用 `model_name` 作为唯一模型标识。
 
 ---
 
 ## 5. `ai_player_profiles` — AI 玩家档案表
 
-**用途**: 记录 AI 玩家的固有属性和配置。
+**用途**: 记录 AI 玩家的固有属性和配置。通过 `model_id` 外键关联 `model_config` 表，模型信息统一从 `model_config` 获取。
 
 **ORM 模型**: `ai_werewolf_core.db.models.AIPlayerProfile`
 
@@ -135,16 +136,16 @@
 |------|------|------|------|
 | `id` | `VARCHAR(19)` | `PRIMARY KEY` | 雪花算法全局唯一 ID |
 | `name` | `VARCHAR(64)` | `INDEX` | 玩家显示名称 |
-| `avatar_url` | `VARCHAR(255)` | `NULLABLE` | 玩家头像 URL |
-| `model_provider` | `VARCHAR(32)` | — | 模型提供商 |
-| `model_name` | `VARCHAR(64)` | — | 具体模型版本 |
+| `model_id` | `VARCHAR(64)` | `FOREIGN KEY → model_config.id ON DELETE SET NULL`, `NULLABLE` | 绑定的模型配置 ID |
 | `system_prompt` | `TEXT` | `NULLABLE` | 特定性格或行为准则 Prompt |
-| `temperature` | `FLOAT` | `DEFAULT 0.7` | 模型生成温度参数 |
 | `is_active` | `BOOLEAN` | `DEFAULT TRUE` | 是否在玩家库中激活可用 |
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL`, `DEFAULT now()` | 记录创建时间 |
 | `updated_at` | `TIMESTAMPTZ` | `NOT NULL`, `DEFAULT now()`, `ON UPDATE now()` | 记录更新时间 |
 
+**修改说明**: 删除了 `avatar_url`、`model_provider`、`model_name`、`temperature` 字段，新增 `model_id` 外键。模型展示信息由前端根据 `model_id` 从 `model_config` 接口自行查询。
+
 **关联关系**:
+- `model_config`: 多对一 → `ModelConfig`（`model_id`→`id`）
 - `stats`: 一对一 → `AIPlayerStats`（级联删除）
 
 ---
@@ -234,9 +235,9 @@ games (1) ────< players (N)
   │                                   │
   └───────────- match_reports (1) ────┘
 
-ai_player_profiles (1) ────- ai_player_stats (1)
-  │
-  └───────────< players (N)
+model_config (1) ────< ai_player_profiles (N)
+                              │
+                              └──── ai_player_stats (1)
 ```
 
 - `players.game_id` → `games.id` (CASCADE DELETE)
@@ -246,8 +247,10 @@ ai_player_profiles (1) ────- ai_player_stats (1)
 - `agent_evaluations.report_id` → `match_reports.id` (CASCADE DELETE)
 - `agent_evaluations.player_id` → `players.id` (CASCADE DELETE)
 - `ai_player_stats.player_id` → `ai_player_profiles.id` (CASCADE DELETE)
+- `ai_player_profiles.model_id` → `model_config.id` (SET NULL)
 - 删除 `games` 行时，关联的 `players`, `events`, `match_reports` 及 `agent_evaluations` 行自动级联删除
 - 删除 `ai_player_profiles` 行时，关联的 `ai_player_stats` 自动级联删除，`players` 中的 `ai_profile_id` 置空
+- 删除 `model_config` 行时，`ai_player_profiles` 中的 `model_id` 置空
 
 ---
 

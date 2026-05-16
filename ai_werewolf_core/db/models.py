@@ -163,16 +163,17 @@ class ModelConfig(Base):
     """模型配置表 —— 存储 LLM 供应商配置。
     
     **Why**: 支持运行时动态增删改模型配置，无需重启服务。
+    
+    **修改说明**: 删除冗余的 name 列，统一使用 model_name 作为唯一模型标识。
     """
 
     __tablename__ = "model_config"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="模型唯一标识")
     provider: Mapped[str] = mapped_column(String(32), nullable=False, comment="提供者名称")
-    name: Mapped[str] = mapped_column(String(64), nullable=False, comment="业务层使用的模型名称")
-    api_key: Mapped[str] = mapped_column(String(255), nullable=False, comment="API Key")
+    api_key: Mapped[str] = mapped_column(String(255), nullable=False, comment="API Key（加密存储）")
     base_url: Mapped[str] = mapped_column(String(255), nullable=False, comment="API 基础 URL")
-    model_name: Mapped[str] = mapped_column(String(64), nullable=False, comment="LLM 实际模型名称")
+    model_name: Mapped[str] = mapped_column(String(64), nullable=False, comment="LLM 实际模型名称，也是业务层唯一标识")
     temperature: Mapped[float] = mapped_column(Float, default=0.7, comment="默认温度")
     max_tokens: Mapped[int] = mapped_column(Integer, default=1024, comment="默认最大 token")
     timeout: Mapped[float] = mapped_column(Float, default=15.0, comment="硬超时（秒）")
@@ -189,23 +190,33 @@ class ModelConfig(Base):
             "timeout": self.timeout,
         }
 
+
 class AIPlayerProfile(Base):
-    """AI 玩家档案表 —— 记录 AI 玩家的固有属性和配置。"""
+    """AI 玩家档案表 —— 记录 AI 玩家的固有属性和配置。
+    
+    **修改说明**: 去除 avatar_url、model_provider、model_name、temperature 字段，
+    新增 model_id 外键关联 model_config 表，模型信息统一从 model_config 查询获取。
+    """
 
     __tablename__ = "ai_player_profiles"
 
     id: Mapped[str] = mapped_column(String(19), primary_key=True, comment="雪花算法全局唯一ID")
     name: Mapped[str] = mapped_column(String(64), index=True, comment="玩家显示名称")
-    avatar_url: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="玩家头像URL")
-    model_provider: Mapped[str] = mapped_column(String(32), comment="模型提供商")
-    model_name: Mapped[str] = mapped_column(String(64), comment="具体模型版本")
+    model_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("model_config.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="绑定的模型配置 ID"
+    )
     system_prompt: Mapped[str | None] = mapped_column(String, nullable=True, comment="特定性格或行为准则 Prompt")
-    temperature: Mapped[float] = mapped_column(Float, default=0.7, comment="模型生成温度参数")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, comment="是否在玩家库中激活可用")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    # 关联
+    model_config: Mapped["ModelConfig | None"] = relationship("ModelConfig")
     stats: Mapped["AIPlayerStats"] = relationship("AIPlayerStats", back_populates="profile", uselist=False, cascade="all, delete-orphan")
+
 
 class AIPlayerStats(Base):
     """玩家统计数据表 —— 精确记录并持久化玩家的核心行为数据。"""

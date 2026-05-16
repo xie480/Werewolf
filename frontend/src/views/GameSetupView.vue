@@ -46,8 +46,10 @@ const errorMsg = ref<string | null>(null)
 /** 成功创建后的 game_id */
 const createdGameId = ref<string | null>(null)
 
-/** 当前展开的座位索引（-1 表示无展开） */
-const expandedSeat = ref<number>(-1)
+/** 当前选中的座位索引（-1 表示未选中） */
+const selectedSeatIndex = ref<number>(-1)
+/** 控制弹窗显示 */
+const showModal = ref<boolean>(false)
 
 /** 创建新 AI 玩家的弹出框状态 */
 const showCreateForm = ref(false)
@@ -78,7 +80,9 @@ function selectForSeat(seatIndex: number, profileId: string | null): void {
   const newAssignments = [...seatAssignments.value]
   newAssignments[seatIndex] = profileId
   seatAssignments.value = newAssignments
-  expandedSeat.value = -1
+  // 关闭弹窗并重置选中座位
+  showModal.value = false
+  selectedSeatIndex.value = -1
 }
 
 /** 创建新 AI 玩家并自动分配给当前座位 */
@@ -97,9 +101,9 @@ async function handleCreateNewPlayer(): Promise<void> {
     })
     // 添加到玩家库
     aiPlayerPool.value.push(profile)
-    // 如果当前有展开的座位，自动分配
-    if (expandedSeat.value >= 0) {
-      selectForSeat(expandedSeat.value, profile.id)
+    // 如果当前有选中的座位，自动分配
+    if (selectedSeatIndex.value >= 0) {
+      selectForSeat(selectedSeatIndex.value, profile.id)
     }
     showCreateForm.value = false
     newPlayerForm.value = {
@@ -195,13 +199,13 @@ onMounted(() => {
         v-for="(_, index) in seatCount"
         :key="index"
         class="seat-card"
-        :class="{ 'seat-expanded': expandedSeat === index }"
+        :class="{ 'seat-expanded': selectedSeatIndex === index }"
       >
         <!-- 卡牌正面（选择后显示玩家名） -->
         <div
           v-if="seatAssignments[index]"
           class="seat-face"
-          @click="expandedSeat = expandedSeat === index ? -1 : index"
+          @click="selectedSeatIndex = index; showModal = true"
         >
           <div class="seat-number">#{{ index + 1 }}</div>
           <div class="card-back">
@@ -216,7 +220,7 @@ onMounted(() => {
         <div
           v-else
           class="seat-face"
-          @click="expandedSeat = expandedSeat === index ? -1 : index"
+          @click="selectedSeatIndex = index; showModal = true"
         >
           <div class="seat-number">#{{ index + 1 }}</div>
           <div class="card-back card-back--empty">
@@ -225,83 +229,84 @@ onMounted(() => {
           <div class="seat-player-name seat-player-name--empty">未分配</div>
         </div>
 
-        <!-- 展开的选择面板 -->
-        <div v-if="expandedSeat === index" class="seat-picker">
-          <div class="picker-header">
-            <span>选择 座位 #{{ index + 1 }} 的 AI 玩家</span>
-            <button class="close-btn" @click="expandedSeat = -1">✕</button>
-          </div>
-
-          <!-- 已有玩家列表 -->
-          <div v-if="loading" class="picker-loading">加载中...</div>
-          <div v-else-if="aiPlayerPool.length === 0" class="picker-empty">
-            暂无 AI 玩家，请先创建一个
-          </div>
-          <div v-else class="picker-list">
-            <div
-              v-for="player in aiPlayerPool"
-              :key="player.id"
-              class="picker-item"
-              :class="{ 'picker-item--selected': seatAssignments[index] === player.id }"
-              @click="selectForSeat(index, player.id)"
-            >
-              <div class="picker-item-name">{{ player.name }}</div>
-              <div class="picker-item-model">{{ player.model_name }}</div>
-              <div class="picker-item-stats">
-                <span class="stat-badge stat-games">{{ player.stats?.total_games ?? 0 }}局</span>
-                <span class="stat-badge stat-winrate">{{ formatWinRate(player.stats) }}</span>
-                <span class="stat-badge stat-detail">{{ formatStats(player.stats) }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 创建新玩家按钮 -->
-          <button
-            class="create-btn"
-            @click="showCreateForm = !showCreateForm"
-          >
-            {{ showCreateForm ? '取消' : '+ 创建新 AI 玩家' }}
-          </button>
-
-          <!-- 创建新玩家表单 -->
-          <div v-if="showCreateForm" class="create-form">
-            <input
-              v-model="newPlayerForm.name"
-              class="form-input"
-              placeholder="玩家名称（必填）"
-            />
-            <select
-              v-model="newPlayerForm.model_id"
-              class="form-select"
-              required
-            >
-              <option value="" disabled>选择绑定的模型</option>
-              <option
-                v-for="m in modelStore.models"
-                :key="m.id"
-                :value="m.id"
-              >
-                {{ m.model_name }} ({{ m.provider }})
-              </option>
-            </select>
-            <p v-if="modelStore.models.length === 0" class="form-hint">
-              暂无可用模型，请先在模型管理中添加模型
-            </p>
-            <textarea
-              v-model="newPlayerForm.system_prompt"
-              class="form-textarea"
-              placeholder="性格 Prompt（可选）"
-              rows="2"
-            />
-            <button class="confirm-btn" @click="handleCreateNewPlayer">
-              创建并选择
-            </button>
-          </div>
-        </div>
       </div>
     </div>
 
     <!-- 操作栏 -->
+    <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
+      <div class="modal-content">
+        <div class="picker-header">
+          <span>选择 座位 #{{ selectedSeatIndex + 1 }} 的 AI 玩家</span>
+          <button class="close-btn" @click="showModal = false">✕</button>
+        </div>
+
+        <!-- 已有玩家列表 -->
+        <div v-if="loading" class="picker-loading">加载中...</div>
+        <div v-else-if="aiPlayerPool.length === 0" class="picker-empty">
+          暂无 AI 玩家，请先创建一个
+        </div>
+        <div v-else class="picker-list">
+          <div
+            v-for="player in aiPlayerPool"
+            :key="player.id"
+            class="picker-item"
+            :class="{ 'picker-item--selected': seatAssignments[selectedSeatIndex] === player.id }"
+            @click="selectForSeat(selectedSeatIndex, player.id)"
+          >
+            <div class="picker-item-name">{{ player.name }}</div>
+              <div class="picker-item-model">{{ modelStore.models.find(m => m.id === player.model_id)?.model_name || player.model_id || '未绑定模型' }}</div>
+            <div class="picker-item-stats">
+              <span class="stat-badge stat-games">{{ player.stats?.total_games ?? 0 }}局</span>
+              <span class="stat-badge stat-winrate">{{ formatWinRate(player.stats) }}</span>
+              <span class="stat-badge stat-detail">{{ formatStats(player.stats) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 创建新玩家按钮 -->
+        <button
+          class="create-btn"
+          @click="showCreateForm = !showCreateForm"
+        >
+          {{ showCreateForm ? '取消' : '+ 创建新 AI 玩家' }}
+        </button>
+
+        <!-- 创建新玩家表单 -->
+        <div v-if="showCreateForm" class="create-form">
+          <input
+            v-model="newPlayerForm.name"
+            class="form-input"
+            placeholder="玩家名称（必填）"
+          />
+          <select
+            v-model="newPlayerForm.model_id"
+            class="form-select"
+            required
+          >
+            <option value="" disabled>选择绑定的模型</option>
+            <option
+              v-for="m in modelStore.models"
+              :key="m.id"
+              :value="m.id"
+            >
+              {{ m.model_name }} ({{ m.provider }})
+            </option>
+          </select>
+          <p v-if="modelStore.models.length === 0" class="form-hint">
+            暂无可用模型，请先在模型管理中添加模型
+          </p>
+          <textarea
+            v-model="newPlayerForm.system_prompt"
+            class="form-textarea"
+            placeholder="性格 Prompt（可选）"
+            rows="2"
+          />
+          <button class="confirm-btn" @click="handleCreateNewPlayer">
+            创建并选择
+          </button>
+        </div>
+      </div>
+    </div>
     <div class="setup-actions">
       <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
       <button
@@ -651,5 +656,22 @@ onMounted(() => {
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: #1a1a2e;
+  padding: 20px;
+  border-radius: 12px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 </style>

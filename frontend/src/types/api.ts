@@ -16,6 +16,20 @@
 export interface CreateGameRequest {
   /** 玩家人数，范围 6-12，默认 9 */
   player_count: number
+  /** 角色配置列表 */
+  role_setup?: string[]
+  /** 玩家配置列表 */
+  players?: PlayerSetupConfig[]
+}
+
+/** 玩家设置配置 */
+export interface PlayerSetupConfig {
+  /** 玩家类型 - existing (已有AI档案) 或 dynamic (动态创建) */
+  type: string
+  /** 玩家ID (当type为existing时必需) */
+  player_id?: string
+  /** 配置对象 (当type为dynamic时必需) */
+  config?: Record<string, unknown>
 }
 
 /** 创建对局成功响应 */

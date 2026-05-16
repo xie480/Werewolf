@@ -137,7 +137,7 @@ async def _build_players_dict(request: CreateGameRequest) -> dict[str, dict]:
                 # 使用现有AI玩家配置
                 ai_profile_id = p_setup.player_id
                 if ai_profile_id in profile_map:
-                    model_id = profile_map[ai_profile_id].model_name
+                    model_id = profile_map[ai_profile_id].model_id or "default_model"
             elif p_setup.type == 'dynamic' and p_setup.config:
                 # 使用动态配置
                 model_id = p_setup.config.get("model_name", "default_model")

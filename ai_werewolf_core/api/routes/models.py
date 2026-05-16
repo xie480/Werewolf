@@ -40,10 +40,7 @@ async def list_models(db: AsyncSession = Depends(get_db)):
 
 @router.get("/{model_id}", response_model=ModelConfigResponse)
 async def get_model(model_id: str, db: AsyncSession = Depends(get_db)):
-    """获取单个模型配置详情。
-
-    **Why**: 修复前端管理台编辑时 404 错误，提供单模型查询接口。
-    """
+    """获取单个模型配置详情。"""
     result = await db.execute(select(ORMModelConfig).where(ORMModelConfig.id == model_id))
     model = result.scalars().first()
     if not model:
@@ -53,7 +50,6 @@ async def get_model(model_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("", response_model=ModelConfigResponse)
 async def create_model(config: ModelConfigCreate, db: AsyncSession = Depends(get_db)):
     """创建新的模型配置。"""
-    # 检查是否存在
     result = await db.execute(select(ORMModelConfig).where(ORMModelConfig.id == config.id))
     if result.scalars().first():
         raise HTTPException(status_code=400, detail="Model ID already exists")
@@ -61,7 +57,6 @@ async def create_model(config: ModelConfigCreate, db: AsyncSession = Depends(get
     db_model = ORMModelConfig(
         id=config.id,
         provider=config.provider,
-        name=config.model_name,
         api_key=encrypt_api_key(config.api_key),
         base_url=config.base_url,
         model_name=config.model_name,
@@ -88,25 +83,18 @@ async def delete_model(model_id: str, db: AsyncSession = Depends(get_db)):
 
     await db.delete(db_model)
     await db.commit()
-
-    # 重新加载注册表
     await ModelRegistry.reload()
-
     return {"status": "success"}
 
 @router.put("/{model_id}", response_model=ModelConfigResponse)
 async def update_model(model_id: str, config: ModelConfigCreate, db: AsyncSession = Depends(get_db)):
-    """更新模型配置。
-
-    **注意**: API Key 若为空则保持原有值（编辑时前端传空字符串表示不修改）。
-    """
+    """更新模型配置。"""
     result = await db.execute(select(ORMModelConfig).where(ORMModelConfig.id == model_id))
     db_model = result.scalars().first()
     if not db_model:
         raise HTTPException(status_code=404, detail="Model not found")
 
     db_model.provider = config.provider
-    db_model.name = config.model_name
     db_model.base_url = config.base_url
     db_model.model_name = config.model_name
     db_model.temperature = config.temperature
@@ -117,23 +105,16 @@ async def update_model(model_id: str, config: ModelConfigCreate, db: AsyncSessio
 
     await db.commit()
     await db.refresh(db_model)
-
-    # 重新加载注册表
     await ModelRegistry.reload()
-
     return db_model
 
 @router.post("/{model_id}/test")
 async def test_model_connection(model_id: str, db: AsyncSession = Depends(get_db)):
-    """模型连通性测试（简易实现）。
-
-    **Why**: 提供前端测试连接功能，当前返回模拟延迟，后续可替换为真实 API 调用。
-    """
+    """模型连通性测试（简易实现）。"""
     result = await db.execute(select(ORMModelConfig).where(ORMModelConfig.id == model_id))
     db_model = result.scalars().first()
     if not db_model:
         raise HTTPException(status_code=404, detail="Model not found")
 
-    # 简单返回模拟延迟
     latency = random.randint(100, 1200)
     return {"status": "success", "latency": latency}

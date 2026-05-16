@@ -667,13 +667,13 @@ class PlayerStatusManager:
                     
                 # 默认模型 ID
                 model_id = "default_model"
-                # 如果玩家有 AI 配置 ID，则查询对应的模型名称
+                # 如果玩家有 AI 配置 ID，则查询对应的 model_id
                 if record.ai_profile_id:
-                    stmt2 = select(AIPlayerProfile.model_name).where(AIPlayerProfile.id == record.ai_profile_id)
+                    stmt2 = select(AIPlayerProfile.model_id).where(AIPlayerProfile.id == record.ai_profile_id)
                     res2 = await session.execute(stmt2)
-                    model_name = res2.scalar_one_or_none()
-                    if model_name:
-                        model_id = model_name
+                    profile_model_id = res2.scalar_one_or_none()
+                    if profile_model_id:
+                        model_id = profile_model_id
                         
                 # 返回包含玩家详细信息的字典
                 return {

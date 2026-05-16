@@ -4,6 +4,9 @@ AI 玩家档案路由 —— 管理 AI 玩家配置与统计数据。
 **Why**: 支持创建/查询/删除 AI 玩家档案，以及查看每个 AI 玩家的统计数据。
 玩家统计数据包含总对局数、胜场、败场、模型调用失败次数等指标。
 
+**修改说明**: 响应中去除了 avatar_url、model_provider、model_name、temperature 字段，
+新增 model_id 字段，模型信息通过关联 model_config 表获取。
+
 参考 [`docs/db/sql table.md`](../../../docs/db/sql%20table.md) 中的 `ai_player_profiles` 和 `ai_player_stats` 表定义。
 """
 
@@ -16,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ai_werewolf_core.db.session import get_db
 from ai_werewolf_core.db.models import AIPlayerProfile, AIPlayerStats, ModelConfig as ORMModelConfig
@@ -33,14 +37,10 @@ router = APIRouter(prefix="/ai-players", tags=["ai-players"])
 
 
 class AIProfileCreate(BaseModel):
-    """创建 AI 玩家档案请求。
-
-    **Why**: 前端通过 model_id 绑定模型，后端查询 ModelConfig 表自动填充
-    model_provider、model_name、temperature 字段，避免前端手动输入出错。
-    """
+    """创建 AI 玩家档案请求。"""
 
     name: str = Field(..., min_length=1, max_length=64, description="玩家显示名称")
-    model_id: str = Field(..., description="绑定的模型配置 ID，从 model_config 表查询")
+    model_id: str = Field(..., description="绑定的模型配置 ID")
     system_prompt: Optional[str] = Field(default=None, description="特定性格或行为准则 Prompt")
 
 
@@ -48,7 +48,6 @@ class AIProfileUpdate(BaseModel):
     """更新 AI 玩家档案请求。"""
 
     name: Optional[str] = Field(default=None, max_length=64)
-    avatar_url: Optional[str] = Field(default=None, max_length=255)
     model_id: Optional[str] = Field(default=None, description="绑定的模型配置 ID")
     system_prompt: Optional[str] = Field(default=None)
     is_active: Optional[bool] = Field(default=None)
@@ -67,15 +66,16 @@ class AIStatsResponse(BaseModel):
 
 
 class AIProfileResponse(BaseModel):
-    """AI 玩家档案响应。"""
+    """AI 玩家档案响应。
+
+    **修改说明**: 去除了 avatar_url、model_provider、model_name、temperature，
+    新增 model_id 字段，模型展示信息由前端根据 model_id 自行查询。
+    """
 
     id: str
     name: str
-    avatar_url: Optional[str] = None
-    model_provider: str
-    model_name: str
+    model_id: Optional[str] = None
     system_prompt: Optional[str] = None
-    temperature: float
     is_active: bool
     created_at: str
     stats: Optional[AIStatsResponse] = None
@@ -121,11 +121,8 @@ async def _profile_to_response(
     return AIProfileResponse(
         id=profile.id,
         name=profile.name,
-        avatar_url=profile.avatar_url,
-        model_provider=profile.model_provider,
-        model_name=profile.model_name,
+        model_id=profile.model_id,
         system_prompt=profile.system_prompt,
-        temperature=profile.temperature,
         is_active=profile.is_active,
         created_at=profile.created_at.isoformat() if profile.created_at else "",
         stats=stats_resp,
@@ -135,10 +132,7 @@ async def _profile_to_response(
 async def _resolve_model_config(
     model_id: str, db: AsyncSession
 ) -> ORMModelConfig:
-    """根据 model_id 查询 ModelConfig 表，不存在则抛出 400 异常。
-
-    **Why**: 确保 AI 玩家只能绑定已注册的模型，避免引用无效模型 ID。
-    """
+    """根据 model_id 查询 ModelConfig 表，不存在则抛出 400 异常。"""
     result = await db.execute(
         select(ORMModelConfig).where(ORMModelConfig.id == model_id)
     )
@@ -161,14 +155,7 @@ async def list_ai_players(
     active_only: bool = False,
     db: AsyncSession = Depends(get_db),
 ) -> AIProfileListResponse:
-    """查询所有 AI 玩家档案列表（含统计数据）。
-
-    Args:
-        active_only: 是否只返回激活状态的玩家。
-
-    Returns:
-        玩家档案列表及总数。
-    """
+    """查询所有 AI 玩家档案列表（含统计数据）。"""
     try:
         stmt = select(AIPlayerProfile)
         if active_only:
@@ -195,17 +182,7 @@ async def get_ai_player(
     profile_id: str,
     db: AsyncSession = Depends(get_db),
 ) -> AIProfileResponse:
-    """查询单个 AI 玩家档案详情（含统计数据）。
-
-    Args:
-        profile_id: AI 玩家档案 ID。
-
-    Returns:
-        包含统计数据的玩家档案详情。
-
-    Raises:
-        404: 玩家不存在。
-    """
+    """查询单个 AI 玩家档案详情（含统计数据）。"""
     try:
         result = await db.execute(
             select(AIPlayerProfile).where(AIPlayerProfile.id == profile_id)
@@ -232,32 +209,22 @@ async def create_ai_player(
 ) -> AIProfileResponse:
     """创建新的 AI 玩家档案。
 
-    **修改说明**: 前端传入 model_id，后端查询 ModelConfig 表获取
-    model_provider、model_name、temperature 字段写入 AIPlayerProfile，
-    不再接受前端直接传入这些字段，确保模型信息一致性。
-
-    Args:
-        config: 玩家档案配置（含 model_id）。
-
-    Returns:
-        创建后的玩家档案（含初始统计数据）。
+    前端传入 model_id，后端仅校验 model_config 是否存在并建立关联，
+    模型相关信息由前端通过 model_config 接口自行查询。
     """
     try:
-        # 1. 校验并查询模型配置
-        model_cfg = await _resolve_model_config(config.model_id, db)
+        # 1. 校验模型配置是否存在
+        await _resolve_model_config(config.model_id, db)
 
         # 2. 生成雪花 ID
         profile_id = get_snowflake().next_id()
 
-        # 3. 创建 AI 玩家档案，模型信息从 ModelConfig 获取
+        # 3. 创建 AI 玩家档案，仅保留 model_id 关联
         profile = AIPlayerProfile(
             id=profile_id,
             name=config.name,
-            avatar_url=None,
-            model_provider=model_cfg.provider,
-            model_name=model_cfg.model_name,
+            model_id=config.model_id,
             system_prompt=config.system_prompt,
-            temperature=model_cfg.temperature,
             is_active=True,
         )
         db.add(profile)
@@ -294,18 +261,7 @@ async def update_ai_player(
     update: AIProfileUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> AIProfileResponse:
-    """更新 AI 玩家档案信息。
-
-    **修改说明**: 如果提供了 model_id，则查询 ModelConfig 表并同步更新
-    model_provider、model_name、temperature 字段。
-
-    Args:
-        profile_id: AI 玩家档案 ID。
-        update: 需要更新的字段。
-
-    Returns:
-        更新后的玩家档案。
-    """
+    """更新 AI 玩家档案信息。"""
     try:
         result = await db.execute(
             select(AIPlayerProfile).where(AIPlayerProfile.id == profile_id)
@@ -318,19 +274,15 @@ async def update_ai_player(
         # 更新基本字段
         if update.name is not None:
             profile.name = update.name
-        if update.avatar_url is not None:
-            profile.avatar_url = update.avatar_url
         if update.system_prompt is not None:
             profile.system_prompt = update.system_prompt
         if update.is_active is not None:
             profile.is_active = update.is_active
 
-        # 如果提供了 model_id，查询 ModelConfig 并同步更新模型字段
+        # 如果提供了 model_id，校验并更新
         if update.model_id is not None:
-            model_cfg = await _resolve_model_config(update.model_id, db)
-            profile.model_provider = model_cfg.provider
-            profile.model_name = model_cfg.model_name
-            profile.temperature = model_cfg.temperature
+            await _resolve_model_config(update.model_id, db)
+            profile.model_id = update.model_id
 
         await db.commit()
         await db.refresh(profile)
@@ -351,11 +303,7 @@ async def delete_ai_player(
     profile_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """删除 AI 玩家档案及关联统计数据。
-
-    Args:
-        profile_id: AI 玩家档案 ID。
-    """
+    """删除 AI 玩家档案及关联统计数据。"""
     try:
         result = await db.execute(
             select(AIPlayerProfile).where(AIPlayerProfile.id == profile_id)
