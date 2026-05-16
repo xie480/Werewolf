@@ -201,6 +201,8 @@ export interface ReplayPlayerInfo {
   agent_id: string
   seat_number: number
   role: string
+  /** 玩家可读名称（可选，回放数据可能包含） */
+  name?: string
 }
 
 export interface ReplayInitialState {

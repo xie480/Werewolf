@@ -60,6 +60,10 @@ export interface PlayerState {
   is_speaking: boolean
   /** 最近一次发言内容摘要（用于座位旁气泡预览） */
   last_speech?: string
+  /** 当前行动目标 player_id（投票/技能目标，null=无，'PASS'=弃权） */
+  action_target?: string | null
+  /** 当前行动类型（'VOTE'/'WOLF_KILL'/'SEER_CHECK' 等，由后端事件注入） */
+  action_type?: string | null
 }
 
 

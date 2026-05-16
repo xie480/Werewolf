@@ -12,7 +12,7 @@
  
 import { onMounted, onBeforeUnmount, computed } from 'vue'
 import { useGameStore } from '../store/game'
-import { GameStatus, EventType } from '../types/enums'
+import { GameStatus, GamePhase, EventType } from '../types/enums'
 import BackgroundLayer from '../components/BackgroundLayer.vue'
 import ConnectionIndicator from '../components/ConnectionIndicator.vue'
 import PlayerSeat from '../components/PlayerSeat.vue'
@@ -116,6 +116,32 @@ const statusLabel = computed(() => {
   }
   return map[store.status ?? ''] ?? store.status ?? '未知'
 })
+
+/** 根据 player_id 获取目标玩家的座位号，用于 Badge 渲染 */
+function getTargetSeat(targetId?: string | null): number | 'PASS' | null {
+  if (!targetId) return null
+  if (targetId === 'PASS') return 'PASS'
+  const targetPlayer = store.players.find(p => p.player_id === targetId)
+  return targetPlayer ? targetPlayer.seat_number : null
+}
+
+/** 投票汇总列表（用于 VOTE_RESOLVE 阶段展示投票结果面板） */
+const voteSummary = computed(() => {
+  return store.players
+    .filter(p => p.action_type === 'VOTE' && p.action_target)
+    .map(p => {
+      const targetPlayer = store.players.find(t => t.player_id === p.action_target)
+      return {
+        voterId: p.player_id,
+        voterSeat: p.seat_number,
+        voterName: p.name,
+        targetSeat: targetPlayer?.seat_number,
+        targetName: targetPlayer?.name,
+        isPass: p.action_target === 'PASS',
+      }
+    })
+    .sort((a, b) => a.voterSeat - b.voterSeat)
+})
 </script>
 
 <template>
@@ -142,18 +168,38 @@ const statusLabel = computed(() => {
       </div>
     </div>
 
-    <!-- 主战场：左右两侧座位 + 中央发言区 -->
+    <!-- 主战场：左右两侧座位 + 中央发言/投票结果区 -->
     <div class="main-battlefield">
       <!-- 左侧玩家 -->
       <div class="side-column left-side">
         <div v-for="player in leftPlayers" :key="player.player_id" class="seat-wrapper">
-          <PlayerSeat :player="player" :is-speaker="player.player_id === store.currentSpeaker" position="left" />
+          <PlayerSeat
+            :player="player"
+            :is-speaker="player.player_id === store.currentSpeaker"
+            position="left"
+            :target-seat="getTargetSeat(player.action_target)"
+          />
         </div>
       </div>
 
-      <!-- 中央发言区域 -->
+      <!-- 中央区域内联条件渲染 -->
       <div class="center-area">
-        <div v-if="latestSpeech" class="speech-area">
+        <!-- 投票结果公示面板（VOTE_RESOLVE 阶段展示） -->
+        <div v-if="store.phase === GamePhase.VOTE_RESOLVE" class="vote-summary-panel">
+          <div class="vote-panel-header">📊 投票结果公示</div>
+          <div v-if="voteSummary.length === 0" class="no-votes">暂无投票记录</div>
+          <div class="vote-list">
+            <div v-for="vote in voteSummary" :key="vote.voterId" class="vote-row">
+              <span class="voter-label">座位 {{ vote.voterSeat }} ({{ vote.voterName }})</span>
+              <span class="vote-arrow">👉</span>
+              <span v-if="vote.isPass" class="target-pass-label">弃权</span>
+              <span v-else class="target-label">座位 {{ vote.targetSeat }} ({{ vote.targetName }})</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 发言气泡（非 VOTE_RESOLVE 阶段显示） -->
+        <div v-else-if="latestSpeech" class="speech-area">
           <SpeechBubble
             :speaker-id="latestSpeech.speakerId"
             :speaker-name="latestSpeech.speakerName"
@@ -165,7 +211,12 @@ const statusLabel = computed(() => {
       <!-- 右侧玩家 -->
       <div class="side-column right-side">
         <div v-for="player in rightPlayers" :key="player.player_id" class="seat-wrapper">
-          <PlayerSeat :player="player" :is-speaker="player.player_id === store.currentSpeaker" position="right" />
+          <PlayerSeat
+            :player="player"
+            :is-speaker="player.player_id === store.currentSpeaker"
+            position="right"
+            :target-seat="getTargetSeat(player.action_target)"
+          />
         </div>
       </div>
     </div>
@@ -352,5 +403,76 @@ const statusLabel = computed(() => {
   flex-direction: column;
   align-items: center;
   background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
+}
+
+/* 投票结果公示面板 */
+.vote-summary-panel {
+  background: rgba(20, 20, 40, 0.95);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  border-radius: 12px;
+  padding: 20px 32px;
+  min-width: 320px;
+  max-width: 480px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  animation: vote-fade-in 0.4s ease-out;
+}
+
+.vote-panel-header {
+  color: #ffd700;
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+  padding-bottom: 12px;
+  letter-spacing: 2px;
+}
+
+.vote-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.vote-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  font-size: 14px;
+  color: #e0e0e0;
+}
+
+.vote-arrow {
+  margin: 0 16px;
+  opacity: 0.6;
+}
+
+.target-label {
+  color: #ff5252;
+  font-weight: 600;
+}
+
+.target-pass-label {
+  color: #888;
+  font-style: italic;
+  font-weight: normal;
+}
+
+.no-votes {
+  text-align: center;
+  color: #888;
+  font-style: italic;
+  padding: 20px 0;
+}
+
+@keyframes vote-fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>

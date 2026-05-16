@@ -90,6 +90,14 @@ function getPlayerName(playerId: string): string {
   const player = players.value.find(p => p.player_id === playerId)
   return player?.name ?? playerId
 }
+
+/** 根据 player_id 获取目标玩家的座位号，用于 Badge 渲染 */
+function getTargetSeat(targetId?: string | null): number | 'PASS' | null {
+  if (!targetId) return null
+  if (targetId === 'PASS') return 'PASS'
+  const targetPlayer = players.value.find(p => p.player_id === targetId)
+  return targetPlayer ? targetPlayer.seat_number : null
+}
 </script>
 
 <template>
@@ -119,7 +127,12 @@ function getPlayerName(playerId: string): string {
       <!-- 左侧玩家 -->
       <div class="side-column left-side">
         <div v-for="player in leftPlayers" :key="player.player_id" class="seat-wrapper">
-          <PlayerSeat :player="player" :is-speaker="player.player_id === currentSpeakerId" position="left" />
+          <PlayerSeat
+            :player="player"
+            :is-speaker="player.player_id === currentSpeakerId"
+            position="left"
+            :target-seat="getTargetSeat(player.action_target)"
+          />
         </div>
       </div>
 
@@ -133,7 +146,12 @@ function getPlayerName(playerId: string): string {
       <!-- 右侧玩家 -->
       <div class="side-column right-side">
         <div v-for="player in rightPlayers" :key="player.player_id" class="seat-wrapper">
-          <PlayerSeat :player="player" :is-speaker="player.player_id === currentSpeakerId" position="right" />
+          <PlayerSeat
+            :player="player"
+            :is-speaker="player.player_id === currentSpeakerId"
+            position="right"
+            :target-seat="getTargetSeat(player.action_target)"
+          />
         </div>
       </div>
     </div>

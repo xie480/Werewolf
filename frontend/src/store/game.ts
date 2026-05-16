@@ -409,6 +409,11 @@ export const useGameStore = defineStore('game', () => {
         if (event.payload.new_phase) {
           phase.value = event.payload.new_phase as string
         }
+        // 阶段切换时，清空所有玩家的行动标记
+        for (const p of players.value) {
+          p.action_target = null
+          p.action_type = null
+        }
         break
 
       case EventType.SPEECH_EVENT:
@@ -417,6 +422,37 @@ export const useGameStore = defineStore('game', () => {
           const speakerId = (event.payload.actor_id ?? event.payload.speaker_id) as string | undefined
           for (const p of players.value) {
             p.is_speaking = p.player_id === speakerId
+          }
+        }
+        break
+
+      case EventType.VOTE_EVENT:
+        // 记录投票意向
+        {
+          const actorId = (event.payload.actor_id ?? event.payload.voter_id) as string | undefined
+          const targetId = event.payload.target_id as string | null
+          if (actorId) {
+            const player = players.value.find(p => p.player_id === actorId)
+            if (player) {
+              player.action_target = targetId ?? 'PASS'
+              player.action_type = 'VOTE'
+            }
+          }
+        }
+        break
+
+      case EventType.PRIVATE_RESOLUTION_EVENT:
+        // 记录私密行动（上帝视角下可见技能目标）
+        {
+          const actorId = event.payload.actor_id as string | undefined
+          const targetId = event.payload.target_id as string | null
+          const actionType = event.payload.action_type as string | undefined
+          if (actorId && actionType) {
+            const player = players.value.find(p => p.player_id === actorId)
+            if (player) {
+              player.action_target = targetId ?? 'PASS'
+              player.action_type = actionType
+            }
           }
         }
         break

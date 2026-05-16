@@ -71,6 +71,7 @@ export const useReplayStore = defineStore('replay', () => {
         seat_number: p.seat_number,
         role: p.role,
         is_alive: true,
+        name: p.name || `玩家 ${p.seat_number}`,
         role_image: getRoleImage(p.role),
         is_speaking: false,
         last_speech: undefined

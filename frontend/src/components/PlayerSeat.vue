@@ -22,8 +22,11 @@ const props = withDefaults(defineProps<{
   isSpeaker?: boolean
   /** 座位所在列：左侧名字在右，右侧名字在左 */
   position?: 'left' | 'right'
+  /** 行动目标座位号（投票/技能目标），null 不显示 */
+  targetSeat?: number | 'PASS' | null
 }>(), {
-  position: 'left'
+  position: 'left',
+  targetSeat: null
 })
 
 /** 身份牌图片路径 */
@@ -35,6 +38,18 @@ const aliveClass = computed(() => ({
   'player-seat--speaking': props.isSpeaker,
   [`player-seat--${props.position}`]: true
 }))
+
+/** 根据行动类型匹配 Emoji 图标 */
+const actionIcon = computed(() => {
+  const type = props.player.action_type
+  if (type === 'VOTE') return '🗳️'
+  if (type === 'WOLF_KILL') return '🔪'
+  if (type === 'WITCH_POISON') return '🧪'
+  if (type === 'WITCH_SAVE') return '💉'
+  if (type === 'SEER_CHECK') return '👁️'
+  if (type === 'HUNTER_SHOOT') return '🔫'
+  return '🎯'
+})
 </script>
 
 <template>
@@ -61,6 +76,15 @@ const aliveClass = computed(() => ({
 
       <!-- 发言高亮光环 -->
       <div v-if="isSpeaker" class="speaking-ring" />
+
+      <!-- 行动目标标记 Badge -->
+      <Transition name="pop">
+        <div v-if="targetSeat !== null && player.is_alive" class="action-target-badge">
+          <span class="action-icon">{{ actionIcon }}</span>
+          <span v-if="targetSeat === 'PASS'" class="target-pass">弃权</span>
+          <span v-else class="target-num">{{ targetSeat }}</span>
+        </div>
+      </Transition>
     </div>
 
     <!-- 玩家信息 -->
@@ -203,5 +227,50 @@ const aliveClass = computed(() => ({
   50% {
     box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
   }
+}
+
+/* 行动目标标记 Badge */
+.action-target-badge {
+  position: absolute;
+  bottom: -8px;
+  right: -8px;
+  background: rgba(20, 20, 40, 0.95);
+  border: 1px solid rgba(255, 215, 0, 0.5);
+  border-radius: 12px;
+  padding: 2px 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 20;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.action-icon {
+  font-size: 12px;
+}
+
+.target-num {
+  color: #ffd700;
+  font-weight: bold;
+  font-family: monospace;
+  font-size: 14px;
+}
+
+.target-pass {
+  color: #aaa;
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Badge 弹出动画 */
+.pop-enter-active,
+.pop-leave-active {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.pop-enter-from,
+.pop-leave-to {
+  transform: scale(0.5);
+  opacity: 0;
 }
 </style>
