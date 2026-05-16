@@ -74,41 +74,59 @@ import ai_werewolf_core.tasks.game   # noqa: F401
 import ai_werewolf_core.tasks.agent_tasks  # noqa: F401 - Agent 推理
 import ai_werewolf_core.tasks.eval   # noqa: F401 - 评测统计（Phase 5 占位）
 
-from celery.signals import worker_process_init
+from celery.signals import worker_process_init, worker_ready
 
-@worker_process_init.connect
-def init_worker(**kwargs):
-    """Worker 进程启动时的初始化钩子"""
+# ---------------------------------------------------------------------------
+# Worker 进程启动后的初始化
+# Why 使用 worker_ready 而非 worker_process_init:
+#   worker_process_init 仅在进程池模式（prefork）下触发，
+#   对于 solo/threads/eventlet 模式不触发。
+#   worker_ready 在所有模式下都会触发，适用于 solo 模式。
+# ---------------------------------------------------------------------------
+
+@worker_ready.connect
+def init_worker_after_ready(**kwargs):
+    """Worker 进程就绪后的初始化钩子。
+
+    在 Celery Worker 完全就绪后调用。适用于所有 pool 模式（solo/threads/prefork）。
+    负责：
+    1. 加载 Lua 脚本
+    2. 注册事件分发器（Dispatcher）
+    3. 启动 EventBus Pub/Sub 监听
+    """
     import asyncio
     from ai_werewolf_core.agents.model.registry import ModelRegistry
     from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
-    
+    from ai_werewolf_core.utils.asyncio_utils import run_async
+
     async def _init():
-        await ModelRegistry.init()
-        logger.info("model_registry_initialized_in_worker")
-        
         await LuaScriptManager.load_all_scripts()
         logger.info("lua_scripts_initialized_in_worker")
-        
-    # 运行异步初始化
-    from ai_werewolf_core.utils.asyncio_utils import run_async
+
+        # 注册事件分发器
+        from ai_werewolf_core.core.event.bus import event_bus
+        from ai_werewolf_core.tasks.dispatch import register_dispatchers
+        register_dispatchers(event_bus)
+        logger.info("dispatchers_registered_in_worker")
+
     run_async(_init())
-    
-    # 注册事件分发器
-    from ai_werewolf_core.core.event.bus import event_bus
-    from ai_werewolf_core.tasks.dispatch import register_dispatchers
-    register_dispatchers(event_bus)
-    logger.info("dispatchers_registered_in_worker")
-    
-    # 启动 EventBus Pub/Sub 监听，接收跨进程事件广播
-    # NOTE: 必须启动监听，否则 Worker 无法收到其他进程发布的事件
-    # 从而 on_phase_transition 不会触发，Agent 任务不会被分发
-    try:
-        async def _start_listening():
-            await event_bus.start_listening()
-            logger.info("event_bus_listening_started_in_worker")
-        run_async(_start_listening())
-    except Exception as e:
-        logger.error("event_bus_listening_failed_in_worker", error=str(e), exc_info=True)
+    logger.info("worker_initialized_and_ready")
+
+
+# ---------------------------------------------------------------------------
+# 模块级初始化（导入时执行，适用于所有模式）
+# Why: 将不依赖事件循环的轻量初始化放在模块级，
+# 避免 worker_ready 信号在 pool 进程中的延迟触发问题。
+# ---------------------------------------------------------------------------
+
+from ai_werewolf_core.agents.model.registry import ModelRegistry
+from ai_werewolf_core.utils.asyncio_utils import run_async
+
+# 初始化 ModelRegistry（同步阻塞式，仅在 Worker 进程首次导入时执行一次）
+try:
+    run_async(ModelRegistry.init())
+    logger.info("model_registry_initialized_in_worker")
+except Exception as e:
+    logger.warning("model_registry_init_failed_in_worker", error=str(e))
 
 logger.info("celery_app_initialized", broker=settings.redis_url)

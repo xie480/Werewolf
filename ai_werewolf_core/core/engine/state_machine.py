@@ -172,29 +172,46 @@ class PhaseStateMachine:
     async def _load_context(self) -> dict:
         """从 Redis 加载当前对局上下文。
 
+        支持重试：当 Redis 连接意外断开时，自动重试并重新获取客户端。
+        Celery Worker 中长时间闲置的连接可能被服务器关闭，
+        通过重试可以触发 _get_redis() 中的懒初始化获取新连接。
+
         Returns:
             包含 ``phase`` 和 ``round`` 的字典。
             Key 不存在时返回初始值 ``{"phase": None, "round": 0}``。
         """
         key = self._context_key()
-        try:
-            redis = await self._get_redis()
-            raw = await redis.hgetall(key)
-            if not raw:
-                return {CTX_FIELD_PHASE: None, CTX_FIELD_ROUND: 0}
+        last_error = None
+        for attempt in range(1, RETRY_COUNT + 1):
+            try:
+                redis = await self._get_redis()
+                raw = await redis.hgetall(key)
+                if not raw:
+                    return {CTX_FIELD_PHASE: None, CTX_FIELD_ROUND: 0}
 
-            phase_str = raw.get(CTX_FIELD_PHASE)
-            round_str = raw.get(CTX_FIELD_ROUND, "0")
+                phase_str = raw.get(CTX_FIELD_PHASE)
+                round_str = raw.get(CTX_FIELD_ROUND, "0")
 
-            return {
-                CTX_FIELD_PHASE: GamePhase(phase_str) if phase_str and phase_str != "None" else None,
-                CTX_FIELD_ROUND: int(round_str),
-            }
-        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
-            self._logger.error("加载对局上下文失败", error=str(e), exc_info=True)
-            raise RedisUnavailableException(
-                f"无法加载对局上下文: game_id={self.game_id}"
-            ) from e
+                return {
+                    CTX_FIELD_PHASE: GamePhase(phase_str) if phase_str and phase_str != "None" else None,
+                    CTX_FIELD_ROUND: int(round_str),
+                }
+            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+                last_error = e
+                self._logger.warning(
+                    "加载对局上下文失败，重试中",
+                    attempt=attempt,
+                    error=str(e),
+                )
+                # 重置客户端引用，下次 _get_redis() 会通过共享连接池获取新连接
+                self._redis = None
+                if attempt < RETRY_COUNT:
+                    await asyncio.sleep(RETRY_DELAY_SEC * attempt)
+                else:
+                    self._logger.error("加载对局上下文失败，重试耗尽", error=str(e), exc_info=True)
+                    raise RedisUnavailableException(
+                        f"无法加载对局上下文: game_id={self.game_id}"
+                    ) from e
 
     async def _save_context(self, phase: Optional[GamePhase], round_num: int) -> None:
         """保存当前对局上下文到 Redis 并同步 DB（Write-Through 模式）。

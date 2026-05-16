@@ -99,37 +99,95 @@ class EventBus:
         self.subscribe_all(self._persist_to_db)
 
     async def start_listening(self) -> None:
-        """启动 Redis Pub/Sub 监听，用于跨进程事件分发。"""
+        """启动 Redis Pub/Sub 监听，用于跨进程事件分发。
+
+        使用独立的 Redis 连接（不设置 socket_timeout，避免 listen() 长连接因超时断开），
+        并内置自动重连机制。
+        """
         if self._pubsub_task is not None:
             return
-            
-        redis = await self._get_redis()
-        pubsub = redis.pubsub()
-        await pubsub.subscribe("werewolf:events:pubsub")
-        
+
+        from ai_werewolf_core.config import settings
+
+        # 构建独立的 Redis 客户端，不设置 socket_timeout
+        # Why: Pub/Sub listen() 是长阻塞操作，共享连接池的 socket_timeout
+        # 会导致 listen() 抛出 TimeoutError，进而崩溃监听协程
+        self._pubsub_redis = aioredis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+            decode_responses=True,
+            socket_keepalive=True,
+        )
+
         async def _listener():
-            try:
-                logger.info("pubsub_listener_started")
-                async for message in pubsub.listen():
-                    if message["type"] == "message":
-                        try:
-                            data = json.loads(message["data"])
-                            sender_id = data.get("sender_id")
-                            if sender_id == self.instance_id:
-                                continue  # 忽略自己发送的消息
-                                
-                            event = Event.model_validate(data["event"])
-                            logger.info("pubsub_message_received", event_id=event.event_id, event_type=event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type))
-                            await self._dispatch_to_subscribers(event, is_remote=True)
-                        except Exception as e:
-                            logger.error("pubsub_message_handling_failed", error=str(e), exc_info=True)
-            except asyncio.CancelledError:
-                logger.info("pubsub_listener_cancelled")
-                await pubsub.unsubscribe("werewolf:events:pubsub")
-            except Exception as e:
-                logger.error("pubsub_listener_crashed", error=str(e), exc_info=True)
-                
+            retry_delay = 1
+            max_retry_delay = 30
+            while True:
+                try:
+                    pubsub = self._pubsub_redis.pubsub()
+                    await pubsub.subscribe("werewolf:events:pubsub")
+                    logger.info("pubsub_listener_started")
+                    retry_delay = 1  # 连接成功后重置延迟
+                    async for message in pubsub.listen():
+                        if message["type"] == "message":
+                            try:
+                                data = json.loads(message["data"])
+                                sender_id = data.get("sender_id")
+                                if sender_id == self.instance_id:
+                                    continue  # 忽略自己发送的消息
+
+                                event = Event.model_validate(data["event"])
+                                logger.info(
+                                    "pubsub_message_received",
+                                    event_id=event.event_id,
+                                    event_type=event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
+                                )
+                                await self._dispatch_to_subscribers(event, is_remote=True)
+                            except Exception as e:
+                                logger.error("pubsub_message_handling_failed", error=str(e), exc_info=True)
+                except asyncio.CancelledError:
+                    logger.info("pubsub_listener_cancelled")
+                    try:
+                        await self._pubsub_redis.aclose()
+                    except Exception:
+                        pass
+                    return
+                except (aioredis.ConnectionError, aioredis.TimeoutError, ConnectionError) as e:
+                    logger.warning("pubsub_connection_lost, reconnecting...", error=str(e), retry_delay=retry_delay)
+                except Exception as e:
+                    logger.error("pubsub_listener_error, reconnecting...", error=str(e), retry_delay=retry_delay)
+
+                # 指数退避重连
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, max_retry_delay)
+
+                # 重建 Redis 连接
+                try:
+                    await self._pubsub_redis.aclose()
+                except Exception:
+                    pass
+                from ai_werewolf_core.config import settings
+                self._pubsub_redis = aioredis.Redis(
+                    host=settings.redis_host,
+                    port=settings.redis_port,
+                    db=settings.redis_db,
+                    decode_responses=True,
+                    socket_keepalive=True,
+                )
+
         self._pubsub_task = asyncio.create_task(_listener())
+
+    async def stop_listening(self) -> None:
+        """停止 Redis Pub/Sub 监听。"""
+        if self._pubsub_task:
+            self._pubsub_task.cancel()
+            try:
+                await self._pubsub_task
+            except asyncio.CancelledError:
+                pass
+            self._pubsub_task = None
+            self._pubsub_redis = None
 
     async def stop_listening(self) -> None:
         """停止 Redis Pub/Sub 监听。"""

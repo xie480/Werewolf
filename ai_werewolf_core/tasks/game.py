@@ -286,9 +286,11 @@ def _evaluate_winner_impl(self, game_id: str) -> dict:
     async def _run() -> dict:
         from ai_werewolf_core.core.engine.game_engine import GameEngine
         from ai_werewolf_core.core.engine.evaluator import WinEvaluator
-        from ai_werewolf_core.core.event.bus import EventBus
+        from ai_werewolf_core.core.event.bus import event_bus as global_event_bus
 
-        event_bus = EventBus()
+        # 必须使用全局单例 event_bus
+        # Why: on_phase_transition 等订阅者注册在全局单例上，
+        # 创建本地 EventBus 实例会导致订阅者丢失，事件无法派发。
         roles = await GameEngine.load_roles_from_persistence(game_id)
         eval_result = WinEvaluator.evaluate_detailed(roles)
 
