@@ -44,7 +44,8 @@ def evaluate_game_task(self, game_id: str) -> dict:
     )
     
     try:
-        result = asyncio.run(_evaluate_game_impl(self, game_id))
+        from ai_werewolf_core.utils.asyncio_utils import run_async
+        result = run_async(_evaluate_game_impl(self, game_id))
         return result
     except Exception as e:
         logger.error(
@@ -85,4 +86,5 @@ def _evaluate_game_impl(self, game_id: str) -> dict:
                 "report_id": report.id
             }
             
-    return asyncio.new_event_loop().run_until_complete(_run())
+    from ai_werewolf_core.utils.asyncio_utils import run_async
+    return run_async(_run())

@@ -216,8 +216,9 @@ async def start_game(game_id: str) -> GameStatusResponse:
 
     执行流程:
     1. 创建 LifecycleManager 并调用 start_game()
-    2. 查询启动后的状态和阶段
-    3. 返回状态快照
+    2. 为初始阶段（NIGHT_START）调度 Celery 自动推进定时器
+    3. 查询启动后的状态和阶段
+    4. 返回状态快照
 
     Raises:
         409: 状态迁移非法（当前状态不是 START）。
@@ -227,6 +228,17 @@ async def start_game(game_id: str) -> GameStatusResponse:
     try:
         manager = LifecycleManager(game_id, event_bus)
         await manager.start_game()
+
+        # ── 为初始阶段 NIGHT_START 调度自动推进定时器 ──
+        # 注意: start_game() 仅完成状态迁移，不会调度定时器。
+        # 定时器调度逻辑在 GameEngine.advance_phase() 中，
+        # 但初始阶段从未经过 advance_phase()，因此需要手动调度。
+        from ai_werewolf_core.core.engine.game_engine import GameEngine
+        from ai_werewolf_core.schemas.enums import GamePhase
+
+        roles = await GameEngine.load_roles_from_persistence(game_id)
+        engine = GameEngine(game_id, event_bus, roles)
+        await engine.schedule_phase_timer(GamePhase.NIGHT_START)
 
         status = await manager.get_status()
         phase = await manager.state_machine.get_current_phase()

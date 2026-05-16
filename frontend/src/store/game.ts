@@ -397,8 +397,8 @@ export const useGameStore = defineStore('game', () => {
     // 根据事件类型分发处理
     switch (event.event_type) {
       case EventType.PHASE_TRANSITION_EVENT:
-        if (event.payload.to_phase) {
-          phase.value = event.payload.to_phase as string
+        if (event.payload.new_phase) {
+          phase.value = event.payload.new_phase as string
           // 后端推进阶段后，重新启动 UI 倒计时
           startPhaseCountdown()
         }
@@ -540,8 +540,8 @@ export const useGameStore = defineStore('game', () => {
         base.dead_player_id = (e.payload.dead_player_id ?? e.payload.player_id) as string
         break
       case EventType.PHASE_TRANSITION_EVENT:
-        base.from_phase = e.payload.from_phase as string
-        base.to_phase = e.payload.to_phase as string
+        base.from_phase = e.payload.old_phase as string
+        base.to_phase = e.payload.new_phase as string
         break
     }
 
@@ -568,8 +568,8 @@ export const useGameStore = defineStore('game', () => {
         base.dead_player_id = (event.payload.dead_player_id ?? event.payload.player_id) as string
         break
       case EventType.PHASE_TRANSITION_EVENT:
-        base.from_phase = event.payload.from_phase as string
-        base.to_phase = event.payload.to_phase as string
+        base.from_phase = event.payload.old_phase as string
+        base.to_phase = event.payload.new_phase as string
         break
     }
 

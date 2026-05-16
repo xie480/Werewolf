@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload as _orm_selectinload
 
 from ai_werewolf_core.db.session import get_db
 from ai_werewolf_core.db.models import AIPlayerProfile, AIPlayerStats, ModelConfig as ORMModelConfig
@@ -157,7 +157,10 @@ async def list_ai_players(
 ) -> AIProfileListResponse:
     """查询所有 AI 玩家档案列表（含统计数据）。"""
     try:
-        stmt = select(AIPlayerProfile)
+        stmt = (
+            select(AIPlayerProfile)
+            .options(_orm_selectinload(AIPlayerProfile.stats))
+        )
         if active_only:
             stmt = stmt.where(AIPlayerProfile.is_active.is_(True))
         stmt = stmt.order_by(AIPlayerProfile.created_at.desc())
@@ -167,8 +170,7 @@ async def list_ai_players(
 
         player_list: list[AIProfileResponse] = []
         for profile in profiles:
-            stats = await profile.awaitable_attrs.stats if hasattr(profile, "awaitable_attrs") else profile.stats
-            player_list.append(await _profile_to_response(profile, stats))
+            player_list.append(await _profile_to_response(profile, profile.stats))
 
         return AIProfileListResponse(players=player_list, total=len(player_list))
 
@@ -185,15 +187,16 @@ async def get_ai_player(
     """查询单个 AI 玩家档案详情（含统计数据）。"""
     try:
         result = await db.execute(
-            select(AIPlayerProfile).where(AIPlayerProfile.id == profile_id)
+            select(AIPlayerProfile)
+            .options(_orm_selectinload(AIPlayerProfile.stats))
+            .where(AIPlayerProfile.id == profile_id)
         )
         profile = result.scalars().first()
 
         if not profile:
             raise HTTPException(status_code=404, detail=f"AI 玩家 [{profile_id}] 不存在")
 
-        stats = await profile.awaitable_attrs.stats if hasattr(profile, "awaitable_attrs") else profile.stats
-        return await _profile_to_response(profile, stats)
+        return await _profile_to_response(profile, profile.stats)
 
     except HTTPException:
         raise
@@ -264,7 +267,9 @@ async def update_ai_player(
     """更新 AI 玩家档案信息。"""
     try:
         result = await db.execute(
-            select(AIPlayerProfile).where(AIPlayerProfile.id == profile_id)
+            select(AIPlayerProfile)
+            .options(_orm_selectinload(AIPlayerProfile.stats))
+            .where(AIPlayerProfile.id == profile_id)
         )
         profile = result.scalars().first()
 
@@ -287,9 +292,8 @@ async def update_ai_player(
         await db.commit()
         await db.refresh(profile)
 
-        stats = await profile.awaitable_attrs.stats if hasattr(profile, "awaitable_attrs") else profile.stats
         logger.info("ai_player_updated", profile_id=profile_id)
-        return await _profile_to_response(profile, stats)
+        return await _profile_to_response(profile, profile.stats)
 
     except HTTPException:
         raise

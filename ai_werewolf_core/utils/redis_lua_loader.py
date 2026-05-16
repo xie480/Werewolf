@@ -79,11 +79,13 @@ class LuaScriptNotLoadedError(LuaScriptError):
     调用脚本时抛出。
     """
 
-    def __init__(self, script_name: str):
-        super().__init__(
-            f"Lua 脚本 [{script_name}] 尚未加载，请先调用 load_all_scripts()",
-            script_name=script_name,
-        )
+    def __init__(self, script_name: str, message: Optional[str] = None):
+        if message is None:
+            message = (
+                f"Lua 脚本 [{script_name}] 尚未加载，"
+                f"请先调用 load_all_scripts()"
+            )
+        super().__init__(message, script_name=script_name)
 
 
 # ============================================================================
@@ -117,12 +119,27 @@ class LuaScriptManager:
     _loaded: bool = False
     """标记是否已完成脚本加载"""
 
-    _lock: asyncio.Lock = asyncio.Lock()
-    """异步锁，保护脚本加载的并发安全"""
+    _lock: Optional[asyncio.Lock] = None
+    """异步锁，保护脚本加载的并发安全（懒初始化）"""
 
     # ------------------------------------------------------------------
     # 公开类方法
     # ------------------------------------------------------------------
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        """获取或创建异步锁（懒初始化）。
+
+        **Why**: 避免在模块导入时创建 asyncio.Lock ——
+        此时可能没有运行中的事件循环，导致锁被绑定到隐式/默认事件循环，
+        后续在 asyncio.run() / new_event_loop() 中使用时异常。
+
+        Returns:
+            已初始化的 :class:`asyncio.Lock` 实例。
+        """
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+        return cls._lock
 
     @classmethod
     async def load_all_scripts(cls) -> None:
@@ -141,7 +158,7 @@ class LuaScriptManager:
         if cls._loaded:
             return
 
-        async with cls._lock:
+        async with cls._get_lock():
             # 双重检查：锁内再次确认
             if cls._loaded:
                 return
@@ -230,12 +247,24 @@ class LuaScriptManager:
             redis.exceptions.ConnectionError: Redis 不可达。
         """
         if not cls._loaded:
-            raise LuaScriptNotLoadedError(script_name)
+            logger.warning(
+                "Lua 脚本尚未加载，尝试自动加载",
+                script_name=script_name,
+            )
+            await cls.load_all_scripts()
 
         sha = cls._shas.get(script_name)
         script_body = cls._scripts.get(script_name)
         if sha is None or script_body is None:
-            raise LuaScriptNotLoadedError(script_name)
+            # 自动加载后仍然没有该脚本，说明脚本文件缺失
+            available = list(cls._scripts.keys())
+            raise LuaScriptNotLoadedError(
+                script_name,
+                message=(
+                    f"Lua 脚本 [{script_name}] 不存在或未成功加载。"
+                    f" (已加载脚本: {available})"
+                ),
+            )
 
         keys = keys or []
         args = args or []
@@ -274,7 +303,7 @@ class LuaScriptManager:
         强制重新扫描目录并注册脚本，覆盖已有的 SHA 缓存。
         生产代码不应调用此方法。
         """
-        async with cls._lock:
+        async with cls._get_lock():
             cls._scripts.clear()
             cls._shas.clear()
             cls._loaded = False
@@ -288,7 +317,7 @@ class LuaScriptManager:
         **Why**: 测试环境中需要在每个测试用例前后清理状态，
         确保测试隔离性。生产代码不应调用此方法。
         """
-        async with cls._lock:
+        async with cls._get_lock():
             cls._scripts.clear()
             cls._shas.clear()
             cls._loaded = False

@@ -81,12 +81,17 @@ def init_worker(**kwargs):
     """Worker 进程启动时的初始化钩子"""
     import asyncio
     from ai_werewolf_core.agents.model.registry import ModelRegistry
+    from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
     
     async def _init():
         await ModelRegistry.init()
         logger.info("model_registry_initialized_in_worker")
         
+        await LuaScriptManager.load_all_scripts()
+        logger.info("lua_scripts_initialized_in_worker")
+        
     # 运行异步初始化
-    asyncio.run(_init())
+    from ai_werewolf_core.utils.asyncio_utils import run_async
+    run_async(_init())
 
 logger.info("celery_app_initialized", broker=settings.redis_url)

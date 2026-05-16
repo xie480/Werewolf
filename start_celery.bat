@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 title Werewolf Celery Worker
 echo ===== Werewolf Celery Worker ^| Redis Broker =====
 echo.

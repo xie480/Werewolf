@@ -111,8 +111,9 @@ def advance_phase_task(self, game_id: str, expected_phase: str = "") -> dict:
     )
 
     try:
-        # 使用 asyncio.run 包裹异步逻辑
-        result = asyncio.run(_advance_phase_impl(
+        from ai_werewolf_core.utils.asyncio_utils import run_async
+        # 使用 run_async 包裹异步逻辑，避免事件循环关闭导致 Redis 客户端失效
+        result = run_async(_advance_phase_impl(
             self, game_id, expected_phase
         ))
         return result
@@ -132,106 +133,106 @@ def advance_phase_task(self, game_id: str, expected_phase: str = "") -> dict:
         }
 
 
-def _advance_phase_impl(self, game_id: str, expected_phase: str) -> dict:
-    """advance_phase_task 的异步实现。"""
-    import asyncio
+async def _advance_phase_impl(self, game_id: str, expected_phase: str) -> dict:
+    """advance_phase_task 的异步实现。
 
-    async def _run() -> dict:
-        # ── Step 1: 并发防重校验 ──
-        from ai_werewolf_core.core.engine.game_engine import GameEngine
-        from ai_werewolf_core.core.event.bus import EventBus
-        from ai_werewolf_core.schemas.enums import GamePhase
+    **Why**: 使用 async def 而非 sync wrapper + new_event_loop，
+    避免在 ``asyncio.run()`` 内部再创建独立事件循环导致
+    ``asyncio.Lock`` 跨事件循环绑定异常。
+    """
+    # ── Step 1: 并发防重校验 ──
+    from ai_werewolf_core.core.engine.game_engine import GameEngine
+    from ai_werewolf_core.core.event.bus import EventBus
+    from ai_werewolf_core.schemas.enums import GamePhase
 
-        event_bus = EventBus()
+    event_bus = EventBus()
 
-        # 检查当前阶段是否与预期一致
-        from ai_werewolf_core.core.engine.state_machine import PhaseStateMachine
-        sm = PhaseStateMachine(game_id, event_bus)
-        current_phase = await sm.get_current_phase()
+    # 检查当前阶段是否与预期一致
+    from ai_werewolf_core.core.engine.state_machine import PhaseStateMachine
+    sm = PhaseStateMachine(game_id, event_bus)
+    current_phase = await sm.get_current_phase()
 
-        if current_phase is None:
-            logger.warning(
-                "advance_phase_skip_no_phase",
-                game_id=game_id,
-                task_id=self.request.id,
-            )
-            return {
-                "game_id": game_id,
-                "task": "advance_phase",
-                "status": "skipped",
-                "reason": "对局尚未初始化或无当前阶段",
-            }
-
-        if expected_phase and current_phase.value != expected_phase:
-            logger.info(
-                "advance_phase_skip_concurrency",
-                game_id=game_id,
-                task_id=self.request.id,
-                expected=expected_phase,
-                actual=current_phase.value,
-                reason="阶段已被提前结束机制推进",
-            )
-            return {
-                "game_id": game_id,
-                "task": "advance_phase",
-                "status": "skipped",
-                "reason": f"当前阶段 {current_phase.value} 与预期 {expected_phase} 不一致",
-            }
-
-        # 再次校验：检查 task_id 是否仍有效
-        from ai_werewolf_core.core.engine.lifecycle import LifecycleManager
-        lcm = LifecycleManager(game_id, event_bus)
-        saved_task_id = await lcm.get_task_id()
-        if saved_task_id and saved_task_id != self.request.id:
-            logger.info(
-                "advance_phase_skip_task_mismatch",
-                game_id=game_id,
-                task_id=self.request.id,
-                saved_task_id=saved_task_id,
-                reason="任务 ID 不匹配，定时器已被替换",
-            )
-            return {
-                "game_id": game_id,
-                "task": "advance_phase",
-                "status": "skipped",
-                "reason": "任务 ID 不匹配，已有新定时器",
-            }
-
-        # ── Step 2: 构建 GameEngine 并推进 ──
-        logger.info(
-            "advance_phase_executing",
+    if current_phase is None:
+        logger.warning(
+            "advance_phase_skip_no_phase",
             game_id=game_id,
             task_id=self.request.id,
-            current_phase=current_phase.value,
         )
-
-        roles = await GameEngine.load_roles_from_persistence(game_id)
-        engine = GameEngine(game_id, event_bus, roles)
-
-        # 加载对局状态（从进程优化，实际已通过 get_current_phase 加载）
-        advance_result = await engine.advance_phase()
-
-        logger.info(
-            "celery_advance_phase_complete",
-            game_id=game_id,
-            task_id=self.request.id,
-            old_phase=advance_result.old_phase.value,
-            new_phase=advance_result.new_phase.value,
-            round=advance_result.round,
-        )
-
         return {
             "game_id": game_id,
             "task": "advance_phase",
-            "status": "success",
-            "old_phase": advance_result.old_phase.value,
-            "new_phase": advance_result.new_phase.value,
-            "round": advance_result.round,
-            "game_over": advance_result.game_over,
-            "winner": advance_result.winner,
+            "status": "skipped",
+            "reason": "对局尚未初始化或无当前阶段",
         }
 
-    return asyncio.new_event_loop().run_until_complete(_run())
+    if expected_phase and current_phase.value != expected_phase:
+        logger.info(
+            "advance_phase_skip_concurrency",
+            game_id=game_id,
+            task_id=self.request.id,
+            expected=expected_phase,
+            actual=current_phase.value,
+            reason="阶段已被提前结束机制推进",
+        )
+        return {
+            "game_id": game_id,
+            "task": "advance_phase",
+            "status": "skipped",
+            "reason": f"当前阶段 {current_phase.value} 与预期 {expected_phase} 不一致",
+        }
+
+    # 再次校验：检查 task_id 是否仍有效
+    from ai_werewolf_core.core.engine.lifecycle import LifecycleManager
+    lcm = LifecycleManager(game_id, event_bus)
+    saved_task_id = await lcm.get_task_id()
+    if saved_task_id and saved_task_id != self.request.id:
+        logger.info(
+            "advance_phase_skip_task_mismatch",
+            game_id=game_id,
+            task_id=self.request.id,
+            saved_task_id=saved_task_id,
+            reason="任务 ID 不匹配，定时器已被替换",
+        )
+        return {
+            "game_id": game_id,
+            "task": "advance_phase",
+            "status": "skipped",
+            "reason": "任务 ID 不匹配，已有新定时器",
+        }
+
+    # ── Step 2: 构建 GameEngine 并推进 ──
+    logger.info(
+        "advance_phase_executing",
+        game_id=game_id,
+        task_id=self.request.id,
+        current_phase=current_phase.value,
+    )
+
+    roles = await GameEngine.load_roles_from_persistence(game_id)
+    engine = GameEngine(game_id, event_bus, roles)
+
+    # 加载对局状态（从进程优化，实际已通过 get_current_phase 加载）
+    advance_result = await engine.advance_phase()
+
+    logger.info(
+        "celery_advance_phase_complete",
+        game_id=game_id,
+        task_id=self.request.id,
+        old_phase=advance_result.old_phase.value,
+        new_phase=advance_result.new_phase.value,
+        round=advance_result.round,
+    )
+
+    return {
+        "game_id": game_id,
+        "task": "advance_phase",
+        "status": "success",
+        "old_phase": advance_result.old_phase.value,
+        "new_phase": advance_result.new_phase.value,
+        "round": advance_result.round,
+        "game_over": advance_result.game_over,
+        "winner": advance_result.winner,
+    }
 
 
 @celery_app.task(
@@ -259,7 +260,8 @@ def evaluate_winner_task(self, game_id: str) -> dict:
     )
 
     try:
-        result = asyncio.run(_evaluate_winner_impl(self, game_id))
+        from ai_werewolf_core.utils.asyncio_utils import run_async
+        result = run_async(_evaluate_winner_impl(self, game_id))
         return result
     except Exception as e:
         logger.error(
@@ -304,4 +306,5 @@ def _evaluate_winner_impl(self, game_id: str) -> dict:
             "winner": eval_result.winner.value if eval_result.winner else None,
         }
 
-    return asyncio.new_event_loop().run_until_complete(_run())
+    from ai_werewolf_core.utils.asyncio_utils import run_async
+    return run_async(_run())

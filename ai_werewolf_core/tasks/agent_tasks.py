@@ -124,7 +124,8 @@ def run_agent_decision(
                     
         return state
 
-    final_state = asyncio.run(_run_and_submit())
+    from ai_werewolf_core.utils.asyncio_utils import run_async
+    final_state = run_async(_run_and_submit())
 
     result = {
         "game_id": game_id,
@@ -256,7 +257,8 @@ def task_archive_memory(
             logger.error("archive_memory_task_failed", error=str(e), exc_info=True)
             return {"success": False, "error": str(e)}
             
-    return asyncio.run(_archive())
+    from ai_werewolf_core.utils.asyncio_utils import run_async
+    return run_async(_archive())
 
 
 @shared_task(name="agents.submit_action", bind=True)
@@ -268,8 +270,8 @@ def submit_action(self, game_id: str, action: dict) -> Dict[str, Any]:
         from ai_werewolf_core.schemas.models import AgentAction
         action_obj = AgentAction(**action)
         from ai_werewolf_core.api.routes.actions import submit_action_internal
-        import asyncio
-        result = asyncio.run(submit_action_internal(game_id, action_obj))
+        from ai_werewolf_core.utils.asyncio_utils import run_async
+        result = run_async(submit_action_internal(game_id, action_obj))
         return {"accepted": result.accepted, "reason": result.reason}
     except Exception as e:
         logger.error("submit_action_task_error", error=str(e), exc_info=True)

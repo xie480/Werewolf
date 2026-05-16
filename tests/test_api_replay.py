@@ -31,8 +31,6 @@ def mock_player_manager():
 @pytest.fixture
 def mock_event_bus():
     with patch("ai_werewolf_core.api.routes.replay.EventBus") as mock:
-        instance = mock.return_value
-        
         # Mock events
         events = [
             Event(
@@ -77,8 +75,8 @@ def mock_event_bus():
             )
         ]
         
-        instance.get_events = AsyncMock(return_value=events)
-        yield instance
+        mock.get_events = AsyncMock(return_value=events)
+        yield mock
 
 def test_get_replay_god_mode(mock_player_manager, mock_event_bus):
     response = client.get("/api/games/test_game/replay?perspective=GOD")

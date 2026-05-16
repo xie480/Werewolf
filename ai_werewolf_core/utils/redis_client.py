@@ -109,7 +109,18 @@ class RedisClientManager:
         Raises:
             redis.exceptions.ConnectionError: Redis 服务不可达。
         """
+        import asyncio
+        try:
+            current_loop = id(asyncio.get_running_loop())
+            logger.info(f"[DIAGNOSIS] get_client called. Current loop: {current_loop}")
+        except RuntimeError:
+            logger.info("[DIAGNOSIS] get_client called. No running loop!")
+
         if cls._initialized and cls._client is not None:
+            try:
+                logger.info(f"[DIAGNOSIS] Returning cached client. Is loop closed? {asyncio.get_running_loop().is_closed()}")
+            except RuntimeError:
+                pass
             return cls._client
 
         if cls._lock is None:

@@ -107,11 +107,13 @@ class TestLuaScriptManagerLoading:
         await LuaScriptManager.load_all_scripts()
 
     @pytest.mark.asyncio
-    async def test_evalsha_without_load_raises(self):
-        """在未加载脚本时调用 evalsha 应抛出 LuaScriptNotLoadedError。"""
+    async def test_evalsha_auto_loads_when_not_loaded(self):
+        """在未加载脚本时调用 evalsha 应自动加载而非抛出异常。"""
         await LuaScriptManager.reset()
-        with pytest.raises(LuaScriptNotLoadedError):
-            await LuaScriptManager.evalsha("hset_with_ttl", keys=["k"], args=["a", "b", "1"])
+        # evalsha 现在会自动调用 load_all_scripts() 而不是抛异常
+        result = await LuaScriptManager.evalsha("hset_with_ttl", keys=["test_auto_load"], args=["a", "b", "1"])
+        assert result is not None
+        assert LuaScriptManager.is_loaded()
         # 恢复
         await LuaScriptManager.load_all_scripts()
 
