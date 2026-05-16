@@ -502,10 +502,11 @@ class PlayerStatusManager:
         try:
             redis = await self._get_redis()
             # BITFIELD 获取 1 到 MAX_SEAT_NUMBER 的所有位
-            results = await redis.bitfield(
-                alive_key,
-                *[("GET", "u1", f"#{i}") for i in range(1, MAX_SEAT_NUMBER + 1)],
-            )
+            bf = redis.bitfield(alive_key)
+            for i in range(1, MAX_SEAT_NUMBER + 1):
+                bf.get("u1", f"#{i}")
+            results = await bf.execute()
+            
             alive_seats = [
                 i + 1
                 for i, bit in enumerate(results)
@@ -569,10 +570,11 @@ class PlayerStatusManager:
 
         try:
             redis = await self._get_redis()
-            results = await redis.bitfield(
-                alive_key,
-                *[("GET", "u1", f"#{i}") for i in range(1, MAX_SEAT_NUMBER + 1)],
-            )
+            bf = redis.bitfield(alive_key)
+            for i in range(1, MAX_SEAT_NUMBER + 1):
+                bf.get("u1", f"#{i}")
+            results = await bf.execute()
+            
             dead_seats = [
                 i + 1
                 for i, bit in enumerate(results)

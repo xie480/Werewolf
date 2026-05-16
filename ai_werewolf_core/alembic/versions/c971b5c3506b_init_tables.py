@@ -43,13 +43,6 @@ VISIBILITY_VALUES = ('PUBLIC', 'PRIVATE', 'FACTION')
 def upgrade() -> None:
     """Create PostgreSQL enum types and the three core tables."""
 
-    # ---- 1. ENUM types ----
-    op.execute(f"CREATE TYPE gamestatus AS ENUM {GAMESTATUS_VALUES}")
-    op.execute(f"CREATE TYPE gamephase AS ENUM {GAMEPHASE_VALUES}")
-    op.execute(f"CREATE TYPE role AS ENUM {ROLE_VALUES}")
-    op.execute(f"CREATE TYPE eventtype AS ENUM {EVENTTYPE_VALUES}")
-    op.execute(f"CREATE TYPE visibility AS ENUM {VISIBILITY_VALUES}")
-
     # ---- 2. games ----
     op.create_table(
         'games',
@@ -66,7 +59,6 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(timezone=True),
                   server_default=sa.func.now()),
     )
-    op.create_index('ix_games_id', 'games', ['id'])
 
     # ---- 3. players ----
     op.create_table(
@@ -88,8 +80,6 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(timezone=True),
                   server_default=sa.func.now()),
     )
-    op.create_index('ix_players_id', 'players', ['id'])
-    op.create_index('ix_players_game_id', 'players', ['game_id'])
 
     # ---- 4. events ----
     op.create_table(
@@ -116,11 +106,6 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True),
                   server_default=sa.func.now()),
     )
-    op.create_index('ix_events_id', 'events', ['id'])
-    op.create_index('ix_events_event_id', 'events', ['event_id'])
-    op.create_index('ix_events_game_id', 'events', ['game_id'])
-    op.create_index('ix_events_seq_num', 'events', ['seq_num'])
-    op.create_index('ix_events_event_type', 'events', ['event_type'])
 
 
 def downgrade() -> None:

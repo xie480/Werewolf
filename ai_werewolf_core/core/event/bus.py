@@ -483,10 +483,11 @@ class EventBus:
                 if hasattr(res, '__await__'):  # 更安全的协程检测
                     await res
             except Exception as e:
+                logger.info(f"[DIAGNOSIS] event.event_type type: {type(event.event_type)}, value: {event.event_type}")
                 logger.error(
                     "事件处理函数执行异常",
                     event_id=event.event_id,
-                    event_type=event.event_type.value,
+                    event_type=event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
                     error=str(e),
                     exc_info=True,
                 )

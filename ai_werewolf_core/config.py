@@ -6,10 +6,9 @@ class ModelConfig(BaseModel):
     """单个模型的静态配置，支持在 .env 中覆盖"""
     model_id: str = Field(..., description="模型唯一标识")
     provider: str = Field(..., description="提供者名称，如 openai、anthropic")
-    name: str = Field(..., description="业务层使用的模型名称")
     api_key: str = Field(..., description="对应提供者的 API Key")
     base_url: str = Field(..., description="API 基础 URL")
-    model_name: str = Field(..., description="LLM 实际模型名称")
+    model_name: str = Field(..., description="LLM 实际模型名称，同时作为业务层唯一标识")
     temperature: float = Field(0.7, description="默认温度")
     max_tokens: int = Field(1024, description="默认最大 token")
     timeout: float = Field(15.0, description="硬超时（秒）")
@@ -81,7 +80,6 @@ class Settings(BaseSettings):
             ModelConfig(
                 model_id="default-openai",
                 provider="openai",
-                name="GPT-4 Turbo",
                 api_key="",
                 base_url="https://api.openai.com/v1",
                 model_name="gpt-4-turbo",
