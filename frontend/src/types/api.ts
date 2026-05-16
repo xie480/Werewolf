@@ -75,6 +75,8 @@ export interface PlayerResponse {
   /** 角色字符串，如 "WEREWOLF", "SEER" */
   role: string
   is_alive: boolean
+  /** 是否为真人玩家（否则为 AI） */
+  is_human: boolean
   /** 玩家可读名称 */
   name: string
 }

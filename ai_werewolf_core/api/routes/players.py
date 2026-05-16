@@ -41,6 +41,7 @@ async def list_players(game_id: str) -> PlayerListResponse:
                 seat_number=info.get("seat", 0),
                 role=info.get("role", "UNKNOWN"),
                 is_alive=True,  # 从 get_all_players 无法获取存活状态，默认 True
+                is_human=info.get("is_human", False),
                 name=info.get("name", pid),  # 优先使用存储的名称，无则回退 player_id
             )
             for pid, info in all_players.items()
@@ -94,6 +95,7 @@ async def get_player(game_id: str, player_id: str) -> PlayerResponse:
             seat_number=seat,
             role=info.get("role", "UNKNOWN"),
             is_alive=is_alive,
+            is_human=info.get("is_human", False),
             name=info.get("name", player_id),  # 优先使用存储的名称，无则回退 player_id
         )
 

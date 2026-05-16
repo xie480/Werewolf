@@ -5,6 +5,9 @@
  * **Why**: 设计中要求前端动态控制台根据后端推送的 GamePhase
  * 和玩家角色渲染对应的操作面板（投票/发言/技能按钮）。
  * 使用乐观更新机制：点击即禁用按钮，等后端确认。
+ *
+ * 隐藏逻辑: 当对局中没有任何 is_human=true 的玩家时，整个面板隐藏。
+ * 真人玩家的 actor_id 自动从 store.players 中查找第一个 is_human 的玩家。
  */
 
 import { ref, computed } from 'vue'
@@ -35,8 +38,19 @@ function getPlayerName(playerId: string): string {
 }
 
 // ============================================================================
-// 计算属性：决定面板渲染内容
+// 计算属性：面板可见性与真人玩家判定
 // ============================================================================
+
+/** 对局中是否存在真人玩家 */
+const hasHumanPlayer = computed(() =>
+  store.players.some(p => p.is_human)
+)
+
+/** 当前真人玩家的 player_id（取第一个，目前只支持单真人） */
+const humanPlayerId = computed(() => {
+  const human = store.players.find(p => p.is_human)
+  return human?.player_id ?? ''
+})
 
 /** 当前阶段是否允许发言 */
 const showSpeechPanel = computed(() => {
@@ -106,10 +120,10 @@ const isLocked = computed(() => !!store.pendingAction || isSubmitting.value)
 
 /** 提交发言 */
 async function handleSpeak(): Promise<void> {
-  if (!speechContent.value.trim() || isLocked.value) return
+  if (!speechContent.value.trim() || isLocked.value || !humanPlayerId.value) return
   isSubmitting.value = true
   try {
-    await store.submitSpeech('player_1', speechContent.value.trim())
+    await store.submitSpeech(humanPlayerId.value, speechContent.value.trim())
     speechContent.value = ''
   } catch {
     // 错误已在 store.error 中
@@ -120,11 +134,11 @@ async function handleSpeak(): Promise<void> {
 
 /** 提交投票 */
 async function handleVote(targetId: string | null): Promise<void> {
-  if (isLocked.value) return
+  if (isLocked.value || !humanPlayerId.value) return
   voteTarget.value = targetId
   isSubmitting.value = true
   try {
-    await store.submitVote('player_1', targetId)
+    await store.submitVote(humanPlayerId.value, targetId)
   } catch {
     // 错误已在 store.error 中
   } finally {
@@ -134,14 +148,14 @@ async function handleVote(targetId: string | null): Promise<void> {
 
 /** 提交技能 */
 async function handleAction(): Promise<void> {
-  if (isLocked.value) return
+  if (isLocked.value || !humanPlayerId.value) return
   if (selectedAction.value !== ActionType.PASS && !actionTarget.value) {
     return
   }
   isSubmitting.value = true
   try {
     await store.submitAction(
-      'player_1',
+      humanPlayerId.value,
       selectedAction.value,
       selectedAction.value !== ActionType.PASS ? actionTarget.value : undefined,
     )
@@ -181,7 +195,7 @@ async function handleStartGame(): Promise<void> {
 </script>
 
 <template>
-  <div class="action-panel">
+  <div v-if="hasHumanPlayer" class="action-panel">
     <!-- 错误提示 -->
     <div v-if="store.error" class="panel-error">
       {{ store.error }}

@@ -153,6 +153,7 @@ async def _build_players_dict(request: CreateGameRequest) -> dict[str, dict]:
             "ai_profile_id": ai_profile_id,
             "model_id": model_id,
             "name": player_name,  # 玩家可读名称
+            "is_human": False,  # 当前仅支持 AI 玩家
         }
 
     logger.info(

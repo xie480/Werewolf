@@ -89,6 +89,7 @@ class PlayerResponse(BaseModel):
     seat_number: int
     role: str  # API 层暴露角色字符串，如 "WEREWOLF"、"SEER"
     is_alive: bool
+    is_human: bool = False  # 是否为真人玩家（否则为 AI）
     name: str = ""  # 玩家名称，为空时前端回退显示 player_id
 
 
