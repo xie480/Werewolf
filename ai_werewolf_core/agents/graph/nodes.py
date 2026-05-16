@@ -119,6 +119,15 @@ async def memory_node(state: AgentState) -> Dict[str, Any]:
         
         prompt_builder = PromptBuilder()
         full_prompt = await prompt_builder.build_prompt(snapshot_obj)
+
+        logger.debug(
+            "memory_node_end",
+            game_id=game_id,
+            player_id=player_id,
+            phase=state["current_phase"],
+            memory_snapshot=snapshot_obj.model_dump(),
+            full_prompt=full_prompt
+        )
         
         return {
             "memory_snapshot": snapshot_obj.model_dump(),
@@ -169,12 +178,12 @@ async def reasoning_node(state: AgentState) -> Dict[str, Any]:
             full_prompt += f"\n\n【系统警告】你上一次的输出存在以下错误，请务必修正：\n{validation_errors[-1]}"
             
         # 调用大模型
-        # 从 Redis 获取玩家的 model_id（默认 fallback 为 "default_model"）
+        # 从 Redis 获取玩家的 model_id（默认 fallback 为 "deepseek-v4-flash"）
         from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
         
         player_mgr = PlayerStatusManager()
         player_info = await player_mgr.get_player_info(game_id, player_id)
-        model_id = player_info.get("model_id", "default_model") if player_info else "default_model"
+        model_id = player_info.get("model_id", "deepseek-v4-flash") if player_info else "deepseek-v4-flash"
         adapter = AdapterFactory.get_adapter(model_id)
         
         # 定义期望的响应模型

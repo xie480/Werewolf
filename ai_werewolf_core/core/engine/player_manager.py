@@ -668,7 +668,7 @@ class PlayerStatusManager:
                     return None
                     
                 # 默认模型 ID
-                model_id = "default_model"
+                model_id = "deepseek-v4-flash"
                 # 如果玩家有 AI 配置 ID，则查询对应的 model_id
                 if record.ai_profile_id:
                     stmt2 = select(AIPlayerProfile.model_id).where(AIPlayerProfile.id == record.ai_profile_id)

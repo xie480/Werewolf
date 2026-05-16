@@ -27,6 +27,7 @@ from ai_werewolf_core.tasks.dispatch import register_dispatchers
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
 from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
+from ai_werewolf_core.worker import celery_app
 
 logger = get_logger(__name__)
 

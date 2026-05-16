@@ -63,13 +63,18 @@ async def on_phase_transition(event: Event):
             continue
             
         logger.info("dispatching_agent_task", game_id=game_id, player_id=player_id, phase=new_phase.value)
-        run_agent_decision.apply_async(
-            kwargs={
-                "game_id": game_id,
-                "player_id": player_id,
-                "current_phase": new_phase.value,
-                "current_round": round_num,
-            }
+        import asyncio
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            lambda pid=player_id: run_agent_decision.apply_async(
+                kwargs={
+                    "game_id": game_id,
+                    "player_id": pid,
+                    "current_phase": new_phase.value,
+                    "current_round": round_num,
+                }
+            )
         )
 
 def register_dispatchers(event_bus):

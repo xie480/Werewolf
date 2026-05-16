@@ -20,6 +20,9 @@ def get_shared_loop() -> asyncio.AbstractEventLoop:
             asyncio.set_event_loop(_shared_loop)
     return _shared_loop
 
+import nest_asyncio
+nest_asyncio.apply()
+
 def run_async(coro):
     """在共享事件循环中运行协程。"""
     loop = get_shared_loop()

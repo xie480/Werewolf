@@ -135,6 +135,10 @@ class PromptBuilder:
             ActionType=ActionType
         )
 
+    def _append_json_instruction(self, prompt: str) -> str:
+        """强制追加包含 'json' 的英文提示，以满足 API response_format 的严格校验。"""
+        return prompt + "\n\nPlease output your response in json format."
+
     async def build_prompt(self, snapshot: MemorySnapshot, max_tokens: int = 6000) -> str:
         """
         根据记忆快照，组装完整的 Prompt。
@@ -170,7 +174,7 @@ class PromptBuilder:
             total_tokens = base_tokens + pruner.count_tokens(context_part)
             
             if total_tokens <= max_tokens:
-                return f"{system_part}\n\n{role_part}\n\n{context_part}\n\n{format_part}"
+                return self._append_json_instruction(f"{system_part}\n\n{role_part}\n\n{context_part}\n\n{format_part}")
                 
             # 2. 降级 1：强制缩小滑动窗口 (Shrink Window)
             window_size -= 1
@@ -191,7 +195,7 @@ class PromptBuilder:
             total_tokens = base_tokens + pruner.count_tokens(context_part)
             
             if total_tokens <= max_tokens:
-                return f"{system_part}\n\n{role_part}\n\n{context_part}\n\n{format_part}"
+                return self._append_json_instruction(f"{system_part}\n\n{role_part}\n\n{context_part}\n\n{format_part}")
                 
         # 4. 降级 3：暴力截断 (Truncation)
         # 如果依然超限，直接截断 global_summary
@@ -201,4 +205,4 @@ class PromptBuilder:
             snapshot.global_summary = snapshot.global_summary[:half_len] + "...(截断)"
             context_part = self._render_context(snapshot, window_size=0)
             
-        return f"{system_part}\n\n{role_part}\n\n{context_part}\n\n{format_part}"
+        return self._append_json_instruction(f"{system_part}\n\n{role_part}\n\n{context_part}\n\n{format_part}")

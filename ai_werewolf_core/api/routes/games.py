@@ -128,7 +128,7 @@ async def _build_players_dict(request: CreateGameRequest) -> dict[str, dict]:
         faction = Faction.WEREWOLF.value if role == Role.WEREWOLF else Faction.VILLAGER.value
         
         ai_profile_id = None
-        model_id = "default_model"
+        model_id = "deepseek-v4-flash"
         player_name = f"玩家 {seat}"  # 默认名称
         
         # 处理玩家设置
@@ -138,11 +138,11 @@ async def _build_players_dict(request: CreateGameRequest) -> dict[str, dict]:
                 # 使用现有AI玩家配置
                 ai_profile_id = p_setup.player_id
                 if ai_profile_id in profile_map:
-                    model_id = profile_map[ai_profile_id].model_id or "default_model"
+                    model_id = profile_map[ai_profile_id].model_id or "deepseek-v4-flash"
                     player_name = profile_map[ai_profile_id].name or player_name
             elif p_setup.type == 'dynamic' and p_setup.config:
                 # 使用动态配置
-                model_id = p_setup.config.get("model_name", "default_model")
+                model_id = p_setup.config.get("model_name", "deepseek-v4-flash")
                 player_name = p_setup.config.get("name", player_name)
                 
         # 将玩家信息添加到字典中
@@ -196,6 +196,36 @@ async def create_game(request: CreateGameRequest = CreateGameRequest()) -> Creat
         players = await _build_players_dict(request)
         player_mgr = PlayerStatusManager()
         await player_mgr.init_players(game_id, players)
+
+        # 初始化 Agent 私有记忆状态
+        from ai_werewolf_core.agents.memory.private import PrivateMemoryManager
+        from ai_werewolf_core.schemas.models import PrivateState
+        from ai_werewolf_core.schemas.enums import Role, Faction
+        
+        private_mgr = PrivateMemoryManager()
+        wolf_players = [pid for pid, info in players.items() if info["role"] == Role.WEREWOLF.value]
+        
+        for pid, info in players.items():
+            role_enum = Role(info["role"])
+            faction_enum = Faction(info["faction"])
+            
+            teammates = []
+            if role_enum == Role.WEREWOLF:
+                teammates = [w for w in wolf_players if w != pid]
+                
+            skill_status = {}
+            if role_enum == Role.WITCH:
+                skill_status = {"antidote": True, "poison": True}
+            elif role_enum == Role.HUNTER:
+                skill_status = {"can_shoot": True}
+                
+            p_state = PrivateState(
+                role=role_enum,
+                faction=faction_enum,
+                teammates=teammates,
+                skill_status=skill_status
+            )
+            await private_mgr.init_private_state(game_id, pid, p_state)
 
         logger.info("game_created", game_id=game_id, player_count=player_count)
         return CreateGameResponse(game_id=game_id, status="START")

@@ -14,7 +14,7 @@ class AdapterFactory:
         # 获取配置
         cfg = ModelRegistry.get_config(model_id)
         
-        if cfg.get("provider") == "openai":
+        if str(cfg.get("provider", "")).lower() == "openai":
             adapter = OpenAIAdapter(cfg)
         else:
             raise NotImplementedError(f"Provider {cfg.get('provider')} not supported")
