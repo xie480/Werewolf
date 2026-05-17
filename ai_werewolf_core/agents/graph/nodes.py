@@ -65,6 +65,12 @@ async def memory_node(state: AgentState) -> Dict[str, Any]:
         # 获取玩家最近一次的嫌疑人列表
         last_suspect_list = await private_mgr.get_last_suspect_list(game_id, player_id)
         
+        # 获取当前对局所有玩家的唯一标识ID列表（无论是否存活）
+        from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
+        player_mgr = PlayerStatusManager()
+        all_players_raw = await player_mgr.get_all_players(game_id)
+        all_player_ids = sorted(all_players_raw.keys()) if all_players_raw else []
+        
         # 组装所有轮次记忆
         from ai_werewolf_core.schemas.models import RoundMemory
         round_memories_dict = {}
@@ -114,7 +120,8 @@ async def memory_node(state: AgentState) -> Dict[str, Any]:
             private_state=private_state,
             history=round_memories,
             experiences=[],
-            last_suspect_list=last_suspect_list
+            last_suspect_list=last_suspect_list,
+            all_player_ids=all_player_ids
         )
         
         prompt_builder = PromptBuilder()

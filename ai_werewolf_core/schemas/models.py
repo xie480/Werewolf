@@ -133,6 +133,7 @@ class MemorySnapshot(BaseModel):
     global_summary: Optional[str] = Field(default=None, description="全局长期摘要")
     experiences: List[str] = Field(default_factory=list, description="从 RAG 检索到的历史经验")
     last_suspect_list: Dict[str, float] = Field(default_factory=dict, description="上一次的嫌疑人列表")
+    all_player_ids: List[str] = Field(default_factory=list, description="当前对局中所有玩家的唯一标识ID列表（无论是否存活），用于注入LLM模板确保suspect_list完整")
 
 
 class SpeechContent(BaseModel):

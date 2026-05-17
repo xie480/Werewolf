@@ -103,7 +103,7 @@ class PromptBuilder:
 
         return can_speak, allowed_actions
 
-    def _render_format(self, faction: str, allowed_actions: list[str], can_speak: bool, role: Role, current_phase: str) -> str:
+    def _render_format(self, faction: str, allowed_actions: list[str], can_speak: bool, role: Role, current_phase: str, all_player_ids: list[str] | None = None) -> str:
         """
         注入 Prompt 输出格式。
         """
@@ -132,7 +132,8 @@ class PromptBuilder:
             can_speak=can_speak,
             role=role.value if role else None,
             current_phase=current_phase,
-            ActionType=ActionType
+            ActionType=ActionType,
+            all_player_ids=all_player_ids or []
         )
 
     def _append_json_instruction(self, prompt: str) -> str:
@@ -157,7 +158,8 @@ class PromptBuilder:
             allowed_actions=allowed_actions,
             can_speak=can_speak,
             role=snapshot.private_state.role,
-            current_phase=current_phase
+            current_phase=current_phase,
+            all_player_ids=snapshot.all_player_ids
         )
         
         from ai_werewolf_core.agents.memory.pruner import MemoryPruner

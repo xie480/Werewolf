@@ -3,10 +3,14 @@
 
 【输出格式要求】
 你必须且只能输出一个合法的 JSON 对象，严格遵循以下 Schema：
+
+当前场上所有玩家ID：{{ all_player_ids | join('、') }}
+你必须在下面 suspect_list 中为上述每个玩家ID赋予嫌疑度分数，不得遗漏或增删任何ID。
+
 {
   "internal_monologue": "string (请严格按照【思考链 (CoT) 指引】中的全部阶段输出你的内心推理过程，阶段包括：【局势回顾与信息提取】、【阵营与身份推测】、【动机与逻辑漏洞分析】、【行动策略与风险评估】、【输出内容规划】。每个阶段后需给出具体推理内容。例如：【局势回顾与信息提取】：xxxx；【阵营与身份推测】：xxxx；【动机与逻辑漏洞分析】：xxxx；【行动策略与风险评估】：xxxx；【输出内容规划】：xxxx。这部分不会公开)",
   
-  "suspect_list": {"玩家ID": float (0.0到1.0之间的神职嫌疑度/击杀价值，请评估场上所有存活玩家)},
+  "suspect_list": {"玩家ID": float (0.0到1.0之间的神职嫌疑度/击杀价值，必须包含场上所有玩家的唯一标识ID（无论是否存活），确保列表完整不遗漏任何玩家)},
 
   "action_type": "string (必须是以下之一: {{ allowed_actions | join(', ') }})",
   "action_target": "string (你要击杀的目标玩家ID。如果决定空刀，请将 action_type 设为 {{ ActionType.PASS.value }}，action_target 设为 null)"

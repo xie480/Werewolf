@@ -16,7 +16,7 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import type {
   GameDetailResponse,
   GameStatusResponse,
