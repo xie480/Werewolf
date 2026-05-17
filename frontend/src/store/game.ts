@@ -80,9 +80,36 @@ export const useGameStore = defineStore('game', () => {
 
   /** 错误信息 */
   const error = ref<string | null>(null)
+/**
+ * 内心 OS 收集池（Map 结构支持多名玩家并行展示）。
+ *
+ * **Why**: NIGHT_WOLF_ACT 阶段三狼并行投票，每人提交 PRIVATE_RESOLUTION_EVENT 时携带各自内心 OS。
+ * 如果用单值 ref，后到达的会覆盖先到达的。Map 按 player_id 独立存储，
+ * 每个玩家座位旁的 InnerOSPanel 都能独立渲染。
+ *
+ * Key: player_id
+ * Value: { innerThought, type }
+ *
+ * 阶段切换时（PHASE_TRANSITION_EVENT）由 clearInnerThoughts() 清空。
+ */
+const innerThoughtMap = reactive<Map<string, { innerThought: string; type: 'speech' | 'action' }>>(new Map())
 
-  /** 当前发言人的内心 OS（GOD 视角下展示） */
-  const currentInnerThought = ref<{ speakerId: string; innerThought: string; type: 'speech' | 'action' } | null>(null)
+/**
+ * 判断指定玩家是否有内心 OS 可展示。
+ * 用于 GameBoard.vue 模板中控制 InnerOSPanel 的 v-if 条件。
+ */
+function hasInnerThought(playerId: string, type?: 'speech' | 'action'): boolean {
+  const entry = innerThoughtMap.get(playerId)
+  if (!entry) return false
+  if (type !== undefined) return entry.type === type
+  return true
+}
+
+/** 清空内心 OS 收集池（阶段切换时调用） */
+function clearInnerThoughts(): void {
+  innerThoughtMap.clear()
+}
+
 
   /** 阶段倒计时剩余秒数（0 表示未启动或已到期） */
   const phaseCountdown = ref<number>(0)
@@ -426,11 +453,12 @@ export const useGameStore = defineStore('game', () => {
         if (event.payload.new_phase) {
           phase.value = event.payload.new_phase as string
         }
-        // 阶段切换时，清空所有玩家的行动标记
+        // 阶段切换时，清空所有玩家的行动标记和内心 OS 收集池
         for (const p of players.value) {
           p.action_target = null
           p.action_type = null
         }
+        clearInnerThoughts()
         break
 
       case EventType.SPEECH_EVENT:
@@ -441,12 +469,12 @@ export const useGameStore = defineStore('game', () => {
             p.is_speaking = p.player_id === speakerId
           }
           // 保存当前发言人的内心 OS（用于 InnerOSPanel 展示）
+          // 发言是顺序发生的，每轮只有一个人在发言，所以用 set 覆盖即可
           if (speakerId && event.payload.inner_thought) {
-            currentInnerThought.value = {
-              speakerId,
+            innerThoughtMap.set(speakerId, {
               innerThought: event.payload.inner_thought as string,
               type: 'speech',
-            }
+            })
           }
         }
         break
@@ -479,12 +507,12 @@ export const useGameStore = defineStore('game', () => {
               player.action_type = actionType
             }
           }
+          // 收集内心 OS 到 Map（支持多名狼人并行展示）
           if (actorId && event.payload.inner_thought) {
-            currentInnerThought.value = {
-              speakerId: actorId,
+            innerThoughtMap.set(actorId, {
               innerThought: event.payload.inner_thought as string,
               type: 'action',
-            }
+            })
           }
         }
         break
@@ -647,9 +675,12 @@ export const useGameStore = defineStore('game', () => {
     isNight,
     isDay,
     currentSpeaker,
-    currentInnerThought,
+    innerThoughtMap,
     currentSpeechContent,
     context,
+    // 方法
+    hasInnerThought,
+    clearInnerThoughts,
     // 动作
     createAndStart,
     startGame,

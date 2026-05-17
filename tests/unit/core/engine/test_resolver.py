@@ -57,71 +57,15 @@ def make_mock_event_bus():
 
 
 class TestIsActionCompleted:
-    """is_action_completed 方法测试。"""
+    """is_action_completed 方法测试。
+
+    注意: NIGHT_WOLF_ACT 阶段的完成度检测已迁移到 WolfVoteManager，
+    ActionResolver 不再处理此阶段。相关测试已移除。
+    参考: plans/狼人并行投票与原子结算设计.md
+    """
 
     def _make_resolver(self) -> ActionResolver:
         return ActionResolver("game_test", make_mock_event_bus())
-
-    def test_wolf_phase_all_submitted(self):
-        """所有存活狼人提交 WOLF_KILL 时完成。"""
-        resolver = self._make_resolver()
-        roles = make_roles(
-            ("player_1", Role.WEREWOLF),
-            ("player_2", Role.WEREWOLF),
-            ("player_3", Role.WEREWOLF),
-            ("player_4", Role.VILLAGER),
-        )
-
-        # 所有狼人提交刀人
-        resolver.submit_action(
-            make_action("player_1", ActionType.WOLF_KILL, "player_4"),
-            roles, GamePhase.NIGHT_WOLF_ACT,
-        )
-        assert not resolver.is_action_completed(roles, GamePhase.NIGHT_WOLF_ACT)
-
-        resolver.submit_action(
-            make_action("player_2", ActionType.WOLF_KILL, "player_4"),
-            roles, GamePhase.NIGHT_WOLF_ACT,
-        )
-        assert not resolver.is_action_completed(roles, GamePhase.NIGHT_WOLF_ACT)
-
-        resolver.submit_action(
-            make_action("player_3", ActionType.WOLF_KILL, "player_4"),
-            roles, GamePhase.NIGHT_WOLF_ACT,
-        )
-        assert resolver.is_action_completed(roles, GamePhase.NIGHT_WOLF_ACT)
-
-    def test_wolf_phase_not_all_submitted(self):
-        """部分狼人未提交时未完成。"""
-        resolver = self._make_resolver()
-        roles = make_roles(
-            ("player_1", Role.WEREWOLF),
-            ("player_2", Role.WEREWOLF),
-            ("player_3", Role.VILLAGER),
-        )
-
-        resolver.submit_action(
-            make_action("player_1", ActionType.WOLF_KILL, "player_3"),
-            roles, GamePhase.NIGHT_WOLF_ACT,
-        )
-
-        assert not resolver.is_action_completed(roles, GamePhase.NIGHT_WOLF_ACT)
-
-    def test_wolf_phase_single_wolf(self):
-        """仅剩 1 狼时，提交后即完成。"""
-        resolver = self._make_resolver()
-        roles = make_roles(
-            ("player_1", Role.WEREWOLF),
-            ("player_2", Role.VILLAGER),
-        )
-        # 狼人存活
-        assert roles["player_1"].is_alive is True
-
-        resolver.submit_action(
-            make_action("player_1", ActionType.WOLF_KILL, "player_2"),
-            roles, GamePhase.NIGHT_WOLF_ACT,
-        )
-        assert resolver.is_action_completed(roles, GamePhase.NIGHT_WOLF_ACT)
 
     def test_witch_phase_save_submitted(self):
         """女巫提交 WITCH_SAVE 后完成。"""
@@ -132,12 +76,9 @@ class TestIsActionCompleted:
             ("player_3", Role.WEREWOLF),
         )
 
-        # 先让狼人行动，让女巫有刀口可救
-        resolver.submit_action(
-            make_action("player_3", ActionType.WOLF_KILL, "player_2", round_num=1),
-            roles, GamePhase.NIGHT_WOLF_ACT,
-        )
-        resolver.calculate_wolf_target()
+        # 模拟狼人刀人目标已设置（WolfVoteManager 结算后同步到 Resolver）
+        resolver._current_night_wolf_target = "player_2"
+        resolver.pending_deaths["player_2"] = ActionType.WOLF_KILL
 
         resolver.submit_action(
             make_action("player_1", ActionType.WITCH_SAVE, "player_2",

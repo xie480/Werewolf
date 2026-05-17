@@ -44,9 +44,14 @@ from ai_werewolf_core.core.engine.special_action_resolver import (
 )
 from ai_werewolf_core.core.engine.state_machine import PhaseStateMachine
 from ai_werewolf_core.core.engine.vote_manager import VoteManager, VoteResolveResult
+from ai_werewolf_core.core.engine.wolf_vote_manager import (
+    WolfVoteManager,
+    WolfVoteResolveResult,
+)
 from ai_werewolf_core.core.event.bus import EventBus
 from ai_werewolf_core.schemas.enums import (
     ActionType,
+    Faction,
     GamePhase,
     GameStatus,
     NIGHT_ACT_PHASES,
@@ -56,6 +61,7 @@ from ai_werewolf_core.schemas.enums import (
     VOTE_PHASES,
 )
 from ai_werewolf_core.schemas.models import AgentAction
+from ai_werewolf_core.utils.time_utils import now_tz
 
 logger = structlog.get_logger(__name__)
 
@@ -138,6 +144,7 @@ class AdvanceResult:
     winner: Optional[str] = None
     night_result: Optional[NightResolveResult] = None
     vote_result: Optional[VoteResolveResult] = None
+    wolf_vote_result: Optional[WolfVoteResolveResult] = None
 
 
 # ============================================================================
@@ -169,6 +176,7 @@ class GameEngine:
         action_gate: 动作门控（防火墙）。
         resolver: 行动结算器。
         vote_manager: 投票管理器。
+        wolf_vote_manager: 狼人投票管理器（新增）。
         special_action_resolver: 特殊行动结算器。
     """
 
@@ -198,6 +206,9 @@ class GameEngine:
         self.action_gate: ActionGate = ActionGate(game_id)
         self.resolver: ActionResolver = ActionResolver(game_id, event_bus)
         self.vote_manager: VoteManager = VoteManager(game_id, event_bus)
+        self.wolf_vote_manager: WolfVoteManager = WolfVoteManager(
+            game_id, event_bus
+        )
         self.special_action_resolver: SpecialActionResolver = SpecialActionResolver(
             game_id, event_bus
         )
@@ -361,7 +372,8 @@ class GameEngine:
         2. 按阶段路由到 Manager    —— 游戏规则校验 + 业务逻辑
 
         路由规则:
-        - 夜晚阶段 → ActionResolver.submit_action()
+        - NIGHT_WOLF_ACT 阶段 → WolfVoteManager.submit_vote()（狼人原子投票）
+        - 其他夜晚阶段 → ActionResolver.submit_action()
         - 投票阶段 → VoteManager.submit_vote()
         - 特殊行动阶段 (HUNTER_SHOOT) → SpecialActionResolver.handle_action()
         - 发言阶段 → Engine 直接处理
@@ -398,7 +410,12 @@ class GameEngine:
 
         # ── Step 2: 按阶段路由到对应 Manager ──
         try:
-            if current_phase in NIGHT_ACT_PHASES:
+            if current_phase == GamePhase.NIGHT_WOLF_ACT:
+                # 狼人行动阶段：使用 WolfVoteManager 原子投票
+                await self.wolf_vote_manager.submit_vote(
+                    action, self.roles, current_phase
+                )
+            elif current_phase in NIGHT_ACT_PHASES:
                 self.resolver.submit_action(action, self.roles, current_phase)
             elif current_phase in VOTE_PHASES:
                 await self.vote_manager.submit_vote(
@@ -446,12 +463,19 @@ class GameEngine:
 
         当阶段所需的所有动作已收集完毕时，取消定时任务并立即推进阶段。
 
+        **狼人投票提前结束**:
+        所有存活狼人提交 WOLF_KILL 选票后，立即通过 WolfVoteManager 结算，
+        确定刀人目标，然后推进到下一阶段。
+
         Args:
             current_phase: 当前游戏阶段。
         """
         is_completed = False
 
-        if current_phase in NIGHT_ACT_PHASES:
+        if current_phase == GamePhase.NIGHT_WOLF_ACT:
+            # 狼人阶段：使用 WolfVoteManager 检测投票完整性
+            is_completed = await self.wolf_vote_manager.is_vote_complete(self.roles)
+        elif current_phase in NIGHT_ACT_PHASES:
             is_completed = self.resolver.is_action_completed(self.roles, current_phase)
         elif current_phase in VOTE_PHASES:
             is_completed = await self.vote_manager.is_action_completed(self.roles)
@@ -519,6 +543,7 @@ class GameEngine:
         deaths: list[str] = []
         night_result: Optional[NightResolveResult] = None
         vote_result: Optional[VoteResolveResult] = None
+        wolf_vote_result: Optional[WolfVoteResolveResult] = None
         game_over = False
         winner: Optional[str] = None
 
@@ -533,9 +558,30 @@ class GameEngine:
                 )
 
         elif old_phase == GamePhase.NIGHT_WOLF_ACT:
-            # 狼人行动阶段结束：执行狼人投票结算
+            # 狼人行动阶段结束：通过 WolfVoteManager 结算投票
             # Why: 标准狼人杀规则——狼人投票选出刀人目标，平局则无人被杀
-            self.resolver.calculate_wolf_target()
+            # WolfVoteManager 已经通过提前结束机制完成了投票收集和结算，
+            # 此处只需获取结算结果。若提前结束未触发（超时场景），则在此结算。
+            self._logger.info(
+                "wolf_vote_resolve_on_advance",
+                round=round_num,
+            )
+            wolf_vote_result = await self.wolf_vote_manager.resolve_vote(
+                self.roles, round_num
+            )
+            # 将刀人目标设置为 ActionResolver 的 pending_deaths
+            # 供 NIGHT_RESOLVE 统一结算（女巫救/毒逻辑）
+            if wolf_vote_result.wolf_target is not None:
+                target_id = wolf_vote_result.wolf_target
+                target_role = self.roles.get(target_id)
+                if target_role is not None and target_role.is_alive:
+                    # 同步到 Resolver 的草稿死亡名单
+                    self.resolver.pending_deaths[target_id] = ActionType.WOLF_KILL
+                    self.resolver._current_night_wolf_target = target_id
+                    self._logger.info(
+                        "wolf_kill_target_set",
+                        target_id=target_id,
+                    )
 
         elif old_phase in VOTE_PHASES:
             vote_result = await self.vote_manager.resolve_vote(
@@ -558,6 +604,10 @@ class GameEngine:
         # ── Step 3: 执行阶段迁移 ──
         if next_phase == GamePhase.NIGHT_START:
             self.resolver.begin_night()
+
+        # 进入狼人行动阶段时，初始化狼人投票回合
+        if next_phase == GamePhase.NIGHT_WOLF_ACT:
+            await self.wolf_vote_manager.begin_vote(round_num)
 
         await self.lifecycle.advance_phase(next_phase)
 
@@ -586,6 +636,7 @@ class GameEngine:
             winner=winner,
             night_result=night_result,
             vote_result=vote_result,
+            wolf_vote_result=wolf_vote_result,
         )
 
     def _determine_next_phase(

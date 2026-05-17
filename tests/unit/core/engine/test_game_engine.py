@@ -125,6 +125,7 @@ class TestEngineInitialization:
         assert engine.action_gate is not None
         assert engine.resolver is not None
         assert engine.vote_manager is not None
+        assert engine.wolf_vote_manager is not None
         assert engine.special_action_resolver is not None
 
     def test_roles_preserved(self, engine: GameEngine, basic_roles: dict) -> None:
@@ -644,12 +645,17 @@ class TestEarlyTermination:
         self, engine: GameEngine
     ) -> None:
         """狼人动作通过 mock 门禁后应被接受。"""
+        from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
+
         with patch.object(
             engine.state_machine, "get_current_phase",
             AsyncMock(return_value=GamePhase.NIGHT_WOLF_ACT),
         ), patch.object(
             engine.action_gate, "admit",
             AsyncMock(return_value=AdmitResult.accepted()),
+        ), patch.object(
+            LuaScriptManager, "evalsha",
+            AsyncMock(return_value=["OK", "player_1", ""]),
         ):
             action = make_action(
                 actor_id="player_1",
@@ -661,16 +667,21 @@ class TestEarlyTermination:
             assert result.accepted is True
 
     @pytest.mark.asyncio
-    async def test_wolf_actions_stored_in_resolver(
+    async def test_wolf_actions_routed_to_wolf_vote_manager(
         self, engine: GameEngine
     ) -> None:
-        """通过 submit_action 提交的狼人动作应存入 resolver 的 pending_actions。"""
+        """NIGHT_WOLF_ACT 阶段提交的 WOLF_KILL 动作应路由到 WolfVoteManager。"""
+        from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
+
         with patch.object(
             engine.state_machine, "get_current_phase",
             AsyncMock(return_value=GamePhase.NIGHT_WOLF_ACT),
         ), patch.object(
             engine.action_gate, "admit",
             AsyncMock(return_value=AdmitResult.accepted()),
+        ), patch.object(
+            LuaScriptManager, "evalsha",
+            AsyncMock(return_value=["OK", "wolf_1", ""]),
         ):
             wolves = [pid for pid, r in engine.roles.items() if r.role_type == Role.WEREWOLF]
             for w in wolves:
@@ -680,23 +691,23 @@ class TestEarlyTermination:
                     target_id="player_2",
                     phase=GamePhase.NIGHT_WOLF_ACT,
                 )
-                await engine.submit_action(action)
+                result = await engine.submit_action(action)
+                assert result.accepted is True
 
-            wolf_kills = [
+            # 确认 resolver.pending_actions 中无 WOLF_KILL 动作
+            wolf_kills_in_resolver = [
                 a for a in engine.resolver.pending_actions
                 if a.action_type == ActionType.WOLF_KILL
             ]
-            assert len(wolf_kills) == len(wolves)
-            assert engine.resolver.is_action_completed(
-                engine.roles, GamePhase.NIGHT_WOLF_ACT
-            )
+            assert len(wolf_kills_in_resolver) == 0
 
     @pytest.mark.asyncio
-    async def test_is_action_completed_partial(
+    async def test_wolf_vote_complete_via_wolf_vote_manager(
         self, engine: GameEngine
     ) -> None:
-        """部分狼人提交时 is_action_completed 返回 False。"""
-        # 创建一个有多只狼的角色配置
+        """NIGHT_WOLF_ACT 阶段的投票完整性检测委托给 WolfVoteManager。"""
+        from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
+
         multi_wolf_roles = make_roles(
             ("player_1", Role.WEREWOLF),
             ("player_2", Role.WEREWOLF),
@@ -711,7 +722,11 @@ class TestEarlyTermination:
         ), patch.object(
             multi_engine.action_gate, "admit",
             AsyncMock(return_value=AdmitResult.accepted()),
+        ), patch.object(
+            LuaScriptManager, "evalsha",
+            AsyncMock(return_value=["OK", "player_1", ""]),
         ):
+            # 只提交 player_1 的投票
             action = make_action(
                 actor_id="player_1",
                 action_type=ActionType.WOLF_KILL,
@@ -719,7 +734,26 @@ class TestEarlyTermination:
                 phase=GamePhase.NIGHT_WOLF_ACT,
             )
             await multi_engine.submit_action(action)
-            # 只有 player_1 提交，player_2 未提交
+
+            # 验证 resolver.is_action_completed 对 NIGHT_WOLF_ACT 返回 False
+            # （因为 WOLF_ACT 不再由 resolver 处理）
             assert not multi_engine.resolver.is_action_completed(
                 multi_engine.roles, GamePhase.NIGHT_WOLF_ACT
             )
+
+            # 验证 WolfVoteManager 的检测机制有效（通过 mock Redis 返回部分投票）
+            with patch.object(
+                multi_engine.wolf_vote_manager,
+                "_redis_hgetall",
+                AsyncMock(
+                    return_value={
+                        "player_1": "player_3",
+                        "meta:status": "OPEN",
+                    }
+                ),
+            ):
+                # 只有 1 只狼人投票，2 只存活狼人，所以不完整
+                is_complete = await multi_engine.wolf_vote_manager.is_vote_complete(
+                    multi_engine.roles
+                )
+                assert is_complete is False

@@ -58,7 +58,12 @@ def _prune_stale_entries(now: float) -> None:
 
 
 async def on_phase_transition(event: Event):
-    """监听阶段变更事件，为 AI 玩家派发决策任务。"""
+    """监听阶段变更事件，为 AI 玩家派发决策任务。
+
+    记录审计时间戳：
+    - NIGHT_WOLF_ACT 进入时记录 T1（phase_entered）到 Redis
+    - 所有狼人分发完成后记录 T2（wolf_dispatched）
+    """
     if event.event_type != EventType.PHASE_TRANSITION_EVENT:
         return
 
@@ -93,12 +98,37 @@ async def on_phase_transition(event: Event):
     alive_seats = await player_mgr.get_alive_players(game_id)
     players_info = await player_mgr.get_all_players(game_id)
 
+    # ── 记录阶段进入时间戳 T1（仅 NIGHT_WOLF_ACT 需要审计） ──
+    if new_phase == GamePhase.NIGHT_WOLF_ACT:
+        try:
+            from ai_werewolf_core.utils.redis_client import RedisClientManager
+            from ai_werewolf_core.constant.redis_keys import RedisKeys
+            redis = await RedisClientManager.get_client()
+            vote_key = RedisKeys.wolf_vote_hash(game_id, round_num)
+            from ai_werewolf_core.utils.time_utils import now_tz
+            await redis.hset(vote_key, "audit:phase_entered_at", now_tz().isoformat())
+            logger.info(
+                "wolf_audit_timestamp_recorded",
+                game_id=game_id,
+                round=round_num,
+                label="phase_entered_at",
+            )
+        except Exception as e:
+            logger.warning(
+                "wolf_audit_timestamp_failed",
+                game_id=game_id,
+                label="phase_entered_at",
+                error=str(e),
+            )
+
+    # ── 构建需要派发任务的玩家列表 ──
+    dispatch_targets = []
     for player_id, info in players_info.items():
         seat = info.get("seat")
         role = info.get("role")
         is_alive = seat in alive_seats
 
-        # 简单过滤：判断该玩家在当前阶段是否可能需要行动
+        # 判断该玩家在当前阶段是否可能需要行动
         can_act = False
         if new_phase == GamePhase.NIGHT_WOLF_ACT and role == Role.WEREWOLF.value and is_alive:
             can_act = True
@@ -118,13 +148,30 @@ async def on_phase_transition(event: Event):
 
         # 区分真实玩家和 AI (目前全为 AI)
         is_human = info.get("is_human", False)
-
         if is_human:
             continue
 
-        logger.info("dispatching_agent_task", game_id=game_id, player_id=player_id, phase=new_phase.value, pid=os.getpid())
-        import asyncio
-        loop = asyncio.get_running_loop()
+        dispatch_targets.append(player_id)
+
+    if not dispatch_targets:
+        logger.info("no_agents_to_dispatch", game_id=game_id, phase=new_phase.value)
+        return
+
+    # ── 并行分发 Agent 任务（尤其对 NIGHT_WOLF_ACT 阶段的多狼人并行） ──
+    import asyncio
+    loop = asyncio.get_running_loop()
+    dispatch_count = len(dispatch_targets)
+
+    logger.info(
+        "dispatching_agent_tasks_parallel",
+        game_id=game_id,
+        phase=new_phase.value,
+        dispatch_count=dispatch_count,
+        targets=dispatch_targets,
+        pid=os.getpid(),
+    )
+
+    for player_id in dispatch_targets:
         await loop.run_in_executor(
             None,
             lambda pid=player_id: run_agent_decision.apply_async(
@@ -136,6 +183,36 @@ async def on_phase_transition(event: Event):
                 }
             )
         )
+
+    # ── 记录狼人分发完成时间戳 T2 ──
+    if new_phase == GamePhase.NIGHT_WOLF_ACT:
+        try:
+            from ai_werewolf_core.utils.redis_client import RedisClientManager
+            from ai_werewolf_core.constant.redis_keys import RedisKeys
+            redis = await RedisClientManager.get_client()
+            vote_key = RedisKeys.wolf_vote_hash(game_id, round_num)
+            from ai_werewolf_core.utils.time_utils import now_tz
+            await redis.hset(vote_key, "audit:wolf_dispatched_at", now_tz().isoformat())
+            logger.info(
+                "wolf_audit_timestamp_recorded",
+                game_id=game_id,
+                round=round_num,
+                label="wolf_dispatched_at",
+            )
+        except Exception as e:
+            logger.warning(
+                "wolf_audit_timestamp_failed",
+                game_id=game_id,
+                label="wolf_dispatched_at",
+                error=str(e),
+            )
+
+    logger.info(
+        "agent_dispatch_complete",
+        game_id=game_id,
+        phase=new_phase.value,
+        dispatched_count=dispatch_count,
+    )
 
 
 def register_dispatchers(event_bus):

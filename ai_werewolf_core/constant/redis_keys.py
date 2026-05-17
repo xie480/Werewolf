@@ -24,6 +24,9 @@ class RedisKeys:
     VOTE_HASH_PREFIX: str = "werewolf:vote"
     """投票数据 Hash Key 前缀。完整格式: werewolf:vote:{game_id}:{round}"""
 
+    WOLF_VOTE_HASH_PREFIX: str = "werewolf:wolf_vote"
+    """狼人投票数据 Hash Key 前缀。完整格式: werewolf:wolf_vote:{game_id}:{round}"""
+
     GAME_CONTEXT_PREFIX: str = "werewolf:game"
     """对局上下文 Hash Key 前缀。完整格式: werewolf:game:{game_id}:context"""
 
@@ -71,6 +74,14 @@ class RedisKeys:
         内容结构: Event 模型的字段字典 (event_id, game_id, seq_num, event_type, visibility, target_agents, timestamp, payload)
         """
         return f"{RedisKeys.EVENT_STREAM_PREFIX}:{game_id}"
+
+    @staticmethod
+    def wolf_vote_hash(game_id: str, round_num: int) -> str:
+        """构建狼人投票 Hash Key: werewolf:wolf_vote:{game_id}:{round}
+        存储结构: Hash
+        内容结构: Field 为 voter_id, Value 为 target_id，及 meta:* 审计字段
+        """
+        return f"{RedisKeys.WOLF_VOTE_HASH_PREFIX}:{game_id}:{round_num}"
 
     @staticmethod
     def vote_hash(game_id: str, round_num: int) -> str:

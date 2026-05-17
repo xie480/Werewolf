@@ -177,15 +177,15 @@ const voteSummary = computed(() => {
           <PlayerSeat
             :player="player"
             :is-speaker="player.player_id === store.currentSpeaker"
-            :is-acting="store.currentInnerThought?.speakerId === player.player_id && (store.phase ?? '').startsWith('NIGHT_')"
+            :is-acting="store.hasInnerThought(player.player_id) && (store.phase ?? '').startsWith('NIGHT_')"
             position="left"
             :target-seat="getTargetSeat(player.action_target)"
           />
           <InnerOSPanel
-            v-if="store.currentInnerThought?.speakerId === player.player_id && store.currentInnerThought?.type === 'action'"
+            v-if="store.hasInnerThought(player.player_id, 'action')"
             :speaker-id="player.player_id"
             :speaker-name="player.name"
-            :inner-thought="store.currentInnerThought.innerThought"
+            :inner-thought="store.innerThoughtMap.get(player.player_id)?.innerThought ?? null"
             variant="seat-left"
           />
         </div>
@@ -215,11 +215,11 @@ const voteSummary = computed(() => {
             :content="latestSpeech.content"
           />
           <InnerOSPanel
-            v-if="store.currentInnerThought?.speakerId === latestSpeech.speakerId && store.currentInnerThought?.type === 'speech'"
+            v-if="latestSpeech && store.hasInnerThought(latestSpeech.speakerId, 'speech')"
             :speaker-id="latestSpeech.speakerId"
             :speaker-name="latestSpeech.speakerName"
             :speech-content="store.currentSpeechContent"
-            :inner-thought="store.currentInnerThought.innerThought"
+            :inner-thought="store.innerThoughtMap.get(latestSpeech.speakerId)?.innerThought ?? null"
             variant="speech"
           />
         </div>
@@ -231,15 +231,15 @@ const voteSummary = computed(() => {
           <PlayerSeat
             :player="player"
             :is-speaker="player.player_id === store.currentSpeaker"
-            :is-acting="store.currentInnerThought?.speakerId === player.player_id && (store.phase ?? '').startsWith('NIGHT_')"
+            :is-acting="store.hasInnerThought(player.player_id) && (store.phase ?? '').startsWith('NIGHT_')"
             position="right"
             :target-seat="getTargetSeat(player.action_target)"
           />
           <InnerOSPanel
-            v-if="store.currentInnerThought?.speakerId === player.player_id && store.currentInnerThought?.type === 'action'"
+            v-if="store.hasInnerThought(player.player_id, 'action')"
             :speaker-id="player.player_id"
             :speaker-name="player.name"
-            :inner-thought="store.currentInnerThought.innerThought"
+            :inner-thought="store.innerThoughtMap.get(player.player_id)?.innerThought ?? null"
             variant="seat-right"
           />
         </div>
