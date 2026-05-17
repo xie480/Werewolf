@@ -99,7 +99,12 @@ function getTargetSeat(targetId?: string | null): number | 'PASS' | null {
   return targetPlayer ? targetPlayer.seat_number : null
 }
 
-/** 当前发言对应的内心 OS（从 ReplayStore 的 innerThoughts 中提取） */
+/** 当前内心 OS 对应的发言人 ID（从 ReplayStore 提取） */
+const currentInnerThoughtSpeakerId = computed(() => {
+  return store.currentGameState.currentInnerThought?.speakerId ?? null
+})
+
+/** 当前发言对应的内心 OS 文本（从 ReplayStore 的 innerThoughts 中提取） */
 const currentInnerThought = computed(() => {
   return store.currentGameState.currentInnerThought?.innerThought ?? null
 })
@@ -135,6 +140,7 @@ const currentInnerThought = computed(() => {
           <PlayerSeat
             :player="player"
             :is-speaker="player.player_id === currentSpeakerId"
+            :is-acting="currentInnerThoughtSpeakerId === player.player_id && (store.currentGameState.currentPhase ?? '').startsWith('NIGHT_')"
             position="left"
             :target-seat="getTargetSeat(player.action_target)"
           />
@@ -169,6 +175,7 @@ const currentInnerThought = computed(() => {
           <PlayerSeat
             :player="player"
             :is-speaker="player.player_id === currentSpeakerId"
+            :is-acting="currentInnerThoughtSpeakerId === player.player_id && (store.currentGameState.currentPhase ?? '').startsWith('NIGHT_')"
             position="right"
             :target-seat="getTargetSeat(player.action_target)"
           />

@@ -24,9 +24,12 @@ const props = withDefaults(defineProps<{
   position?: 'left' | 'right'
   /** 行动目标座位号（投票/技能目标），null 不显示 */
   targetSeat?: number | 'PASS' | null
+  /** 是否正在夜晚行动/思考（紫色呼吸光环高亮） */
+  isActing?: boolean
 }>(), {
   position: 'left',
-  targetSeat: null
+  targetSeat: null,
+  isActing: false
 })
 
 /** 身份牌图片路径 */
@@ -36,6 +39,7 @@ const roleImage = computed(() => props.player.role_image || '')
 const aliveClass = computed(() => ({
   'player-seat--dead': !props.player.is_alive,
   'player-seat--speaking': props.isSpeaker,
+  'player-seat--acting': props.isActing,
   [`player-seat--${props.position}`]: true
 }))
 
@@ -74,8 +78,10 @@ const actionIcon = computed(() => {
       <!-- 死亡标记 -->
       <div v-if="!player.is_alive" class="death-mark">✕</div>
 
-      <!-- 发言高亮光环 -->
+      <!-- 发言高亮光环（金色） -->
       <div v-if="isSpeaker" class="speaking-ring" />
+      <!-- 夜晚行动高亮光环（紫色） -->
+      <div v-if="isActing" class="acting-ring" />
 
       <!-- 行动目标标记 Badge -->
       <Transition name="pop">
@@ -227,6 +233,30 @@ const actionIcon = computed(() => {
   50% {
     box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
   }
+}
+
+/* 夜晚行动高亮光环 */
+.acting-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 12px;
+  border: 2px solid #8b5cf6;
+  animation: pulse-acting 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes pulse-acting {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(139, 92, 246, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(139, 92, 246, 0.8);
+  }
+}
+
+/* 夜晚行动玩家高亮缩放 */
+.player-seat--acting {
+  transform: scale(1.08);
 }
 
 /* 行动目标标记 Badge */

@@ -177,6 +177,7 @@ const voteSummary = computed(() => {
           <PlayerSeat
             :player="player"
             :is-speaker="player.player_id === store.currentSpeaker"
+            :is-acting="store.currentInnerThought?.speakerId === player.player_id && (store.phase ?? '').startsWith('NIGHT_')"
             position="left"
             :target-seat="getTargetSeat(player.action_target)"
           />
@@ -230,6 +231,7 @@ const voteSummary = computed(() => {
           <PlayerSeat
             :player="player"
             :is-speaker="player.player_id === store.currentSpeaker"
+            :is-acting="store.currentInnerThought?.speakerId === player.player_id && (store.phase ?? '').startsWith('NIGHT_')"
             position="right"
             :target-seat="getTargetSeat(player.action_target)"
           />

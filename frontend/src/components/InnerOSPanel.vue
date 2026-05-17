@@ -42,8 +42,8 @@ const props = withDefaults(defineProps<{
 // 状态
 // ============================================================================
 
-/** 是否展开内心 OS 面板 */
-const isExpanded = ref(false)
+/** 是否展开内心 OS 面板（默认展开，确保面板可见） */
+const isExpanded = ref(true)
 /** 是否正在打字机展示内心 OS */
 const isTyping = ref(false)
 /** 已展示的内心 OS 文本（打字机效果） */
@@ -120,14 +120,17 @@ watch(
       displayedInnerThought.value = ''
     }
   },
+  { immediate: true },
 )
 
-// 监听发言人变化，新发言人出现时自动收起上一个面板（延迟展开）
+// 监听发言人变化，新发言人出现时清空打字机文本但保持面板展开
+// 当新的 innerThought 到达时由上面的 watch 自动触发打字机效果
 watch(
   () => props.speakerId,
   () => {
     stopTypingInnerThought()
     displayedInnerThought.value = ''
+    // isExpanded 保持 true：面板始终展开，只在无 innerThought 时通过 v-if 隐藏
   },
 )
 </script>
