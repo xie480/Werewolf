@@ -211,10 +211,16 @@ async def reasoning_node(state: AgentState) -> Dict[str, Any]:
             
             # 构造 proposed_action
             current_round = state.get("current_round", 1)
+            
+            # 清理 action_target，防止 LLM 输出 "null", "None", "" 等字符串
+            target_id = parsed_data.action_target
+            if target_id in ("null", "None", "none", "", "无"):
+                target_id = None
+                
             proposed_action = {
                 "action_type": parsed_data.action_type,
                 "actor_id": player_id,
-                "target_id": parsed_data.action_target,
+                "target_id": target_id,
                 "phase": current_phase.value,
                 "round": current_round,
                 "reason": parsed_data.internal_monologue,
