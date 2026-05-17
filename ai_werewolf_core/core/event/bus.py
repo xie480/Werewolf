@@ -791,47 +791,47 @@ class EventBus:
             payload_keys=list(event.payload.keys()) if event.payload else [],
         )
 
-    async def _persist_to_db(self, event: Event) -> None:
+    def _persist_to_db(self, event: Event) -> None:
+        """同步的数据库持久化订阅者，将事件写入 EventRecord 表。
+        在不同的 asyncio 循环（如 Agent loop）中调用时，使用共享的事件循环
+        执行实际的异步数据库操作，以避免 ``Task attached to a different loop``
+        的错误。
         """
-        数据库持久化订阅者 —— 将事件写入 EventRecord 表。
+        from ai_werewolf_core.utils.asyncio_utils import run_async
 
-        **Why**: 遵循 Event Sourcing 架构，所有事件必须持久化到 PostgreSQL，
-        以支持复盘回放和状态重建。此方法作为全局订阅者被 EventBus 自动调用。
-
-        **ID 策略**: 使用雪花算法生成 EventRecord 的主键 ID，
-        替代原有的 UUID v4，改善 B-Tree 索引写入性能。
-
-        NOTE: 持久化失败不应阻塞事件分发，仅记录错误。
-        """
-        try:
-            record = EventRecord(
-                id=get_snowflake().next_id(),
-                event_id=event.event_id,
-                game_id=event.game_id,
-                seq_num=event.seq_num,
-                event_type=event.event_type,
-                visibility=event.visibility,
-                target_agents=event.target_agents,
-                payload=event.payload,
-                timestamp=event.timestamp,
-            )
-            async with async_session_factory() as session:
-                session.add(record)
-                await session.commit()
-                logger.debug(
-                    "事件已持久化",
+        async def _do_persist():
+            try:
+                record = EventRecord(
+                    id=get_snowflake().next_id(),
                     event_id=event.event_id,
                     game_id=event.game_id,
                     seq_num=event.seq_num,
+                    event_type=event.event_type,
+                    visibility=event.visibility,
+                    target_agents=event.target_agents,
+                    payload=event.payload,
+                    timestamp=event.timestamp,
                 )
-        except Exception as e:
-            logger.error(
-                "事件持久化失败",
-                event_id=event.event_id,
-                game_id=event.game_id,
-                error=str(e),
-                exc_info=True,
-            )
+                async with async_session_factory() as session:
+                    session.add(record)
+                    await session.commit()
+                    logger.debug(
+                        "事件已持久化",
+                        event_id=event.event_id,
+                        game_id=event.game_id,
+                        seq_num=event.seq_num,
+                    )
+            except Exception as e:
+                logger.error(
+                    "事件持久化失败",
+                    event_id=event.event_id,
+                    game_id=event.game_id,
+                    error=str(e),
+                    exc_info=True,
+                )
+
+        # 使用共享的事件循环执行持久化，避免循环不匹配问题
+        run_async(_do_persist())
 
     # ------------------------------------------------------------------
     # 生命周期

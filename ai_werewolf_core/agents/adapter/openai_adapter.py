@@ -47,7 +47,8 @@ class OpenAIAdapter(BaseModelAdapter):
                         model=self.config.get("model_name", "gpt-4-turbo"),
                         messages=messages,
                         temperature=request.temperature,
-                        max_tokens=request.max_tokens
+                        max_tokens=request.max_tokens,
+                        response_format={"type": "json_object"}
                     ),
                     timeout=self.config.get("timeout", 60.0)
                 )

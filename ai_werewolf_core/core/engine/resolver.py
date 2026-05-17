@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections import defaultdict
 from typing import Dict, List, Optional, Set, Tuple
@@ -189,7 +190,7 @@ class ActionResolver:
         """
         wolf_kill_votes: Dict[str, int] = {}
         for action in self.pending_actions:
-            if action.action_type == ActionType.WOLF_KILL.value and action.target_id is not None:
+            if action.action_type == ActionType.WOLF_KILL and action.target_id is not None:
                 wolf_kill_votes[action.target_id] = wolf_kill_votes.get(action.target_id, 0) + 1
 
         if not wolf_kill_votes:
@@ -229,40 +230,24 @@ class ActionResolver:
     # 动作接收与校验
     # ------------------------------------------------------------------
 
-    async def submit_action(
+    def submit_action(
         self,
         action: AgentAction,
         roles: Dict[str, BaseRole],
         current_phase: GamePhase,
     ) -> bool:
-        """接收并暂存 Agent 提交的动作。
+        """同步接收并暂存 Agent 提交的动作。
 
-        此方法执行两阶段校验：
-        1. **阶段校验**：动作的预期阶段是否与当前阶段一致。
-        2. **角色校验**：通过 Role System 的 :meth:`BaseRole.validate_action`
-           判定该角色在当前阶段是否有权执行此动作。
-
-        **Why (校验与暂存分离)**: 校验成功不代表立即生效——夜晚动作
-        需要在 NIGHT_RESOLVE 阶段统一结算。因此通过校验的动作暂存于
-        ``pending_actions``，校验失败的则立即抛出异常（无副作用）。
-
-        Args:
-            action: Agent 提交的动作（AgentAction 模型）。
-            roles: 当前所有角色的映射 ``player_id → BaseRole``。
-            current_phase: 当前游戏阶段。
-
-        Returns:
-            ``True`` 表示动作已通过校验并暂存成功。
-
-        Raises:
-            ActionValidationError: 动作非法（阶段不匹配 / 角色无权限 / 目标不存在等）。
+        与原来的 ``async`` 版本相比，此实现直接在当前线程阻塞执行，
+        通过 ``run_async`` 在共享事件循环中运行需要 ``await`` 的
+        ``EventBus.publish``，避免 ``Task attached to a different loop``
+        错误，同时兼容单元测试中未 ``await`` 调用的情形。
         """
         # ── 校验 1: 阶段匹配 ──
         if action.phase != current_phase:
             raise ActionValidationError(
                 action,
-                f"阶段不匹配: 动作声明 [{action.phase.value}]，"
-                f"实际当前阶段 [{current_phase.value}]",
+                f"阶段不匹配: 动作声明 [{action.phase.value}]，实际当前阶段 [{current_phase.value}]",
             )
 
         # ── 校验 2: 行动者存在且存活 ──
@@ -282,8 +267,7 @@ class ActionResolver:
         if not actor_role.validate_action(current_phase, action.action_type):
             raise ActionValidationError(
                 action,
-                f"角色 [{actor_role.role_type.value}] 在阶段 [{current_phase.value}] "
-                f"无权执行动作 [{action.action_type}]",
+                f"角色 [{actor_role.role_type.value}] 在阶段 [{current_phase.value}] 无权执行动作 [{action.action_type}]",
             )
 
         # ── 校验 4: 目标有效性（仅针对需要目标的操作） ──
@@ -322,7 +306,14 @@ class ActionResolver:
                 "phase": current_phase.value,
             },
         )
-        await self.event_bus.publish(event)
+        # 发布私密行动事件（用于前端透视和上帝视角展示）
+        # 在真实环境中 ``event_bus.publish`` 是异步的，需要在共享事件循环中执行。
+        # 单元测试中使用 ``MagicMock``，返回值可能不是 awaitable，直接调用会导致 TypeError。
+        # 因此判断返回值是否为 coroutine/awaitable，若是则在共享循环中运行；否则忽略。
+        from ai_werewolf_core.utils.asyncio_utils import run_async
+        publish_result = self.event_bus.publish(event)
+        if asyncio.iscoroutine(publish_result) or hasattr(publish_result, '__await__'):
+            run_async(publish_result)
 
         return True
 
@@ -348,12 +339,12 @@ class ActionResolver:
             ActionValidationError: 目标不合法。
         """
         requires_target = action.action_type in {
-            ActionType.WOLF_KILL.value,
-            ActionType.WITCH_SAVE.value,
-            ActionType.WITCH_POISON.value,
-            ActionType.SEER_CHECK.value,
-            ActionType.HUNTER_SHOOT.value,
-            ActionType.VOTE.value,
+            ActionType.WOLF_KILL,
+            ActionType.WITCH_SAVE,
+            ActionType.WITCH_POISON,
+            ActionType.SEER_CHECK,
+            ActionType.HUNTER_SHOOT,
+            ActionType.VOTE,
         }
 
         if requires_target and action.target_id is None:
@@ -374,7 +365,7 @@ class ActionResolver:
             # WITCH_SAVE 仅能救狼人原始刀人目标
             # Why: 标准狼人杀规则——女巫的解药只能救当晚被狼人杀害的玩家，
             # 不能凭空复活已死的玩家或救毒杀目标。
-            if action.action_type == ActionType.WITCH_SAVE.value:
+            if action.action_type == ActionType.WITCH_SAVE:
                 if self._current_night_wolf_target is None:
                     raise ActionValidationError(
                         action,
@@ -406,7 +397,7 @@ class ActionResolver:
             action: 已通过校验的动作。
             actor_role: 行动者的角色实例。
         """
-        if action.action_type == ActionType.WOLF_KILL.value and action.target_id is not None:
+        if action.action_type == ActionType.WOLF_KILL and action.target_id is not None:
             # 狼人投票阶段：不立即更新 pending_deaths，而是在所有狼人提交完毕后
             # 通过 calculate_wolf_target() 统一计票，得票最高者成为刀人目标。
             # 平局时无人被杀（目标为 None）。
@@ -417,7 +408,7 @@ class ActionResolver:
                 actor_id=action.actor_id,
             )
 
-        elif action.action_type == ActionType.WITCH_SAVE.value and action.target_id is not None:
+        elif action.action_type == ActionType.WITCH_SAVE and action.target_id is not None:
             # 仅当目标在 pending_deaths 中且原因为 WOLF_KILL 时，才能移除
             # Why: 解药只能反制狼刀，不能反解毒药或之前的死亡
             if (
@@ -436,7 +427,7 @@ class ActionResolver:
                     reason="目标不在狼刀死亡名单中",
                 )
 
-        elif action.action_type == ActionType.WITCH_POISON.value and action.target_id is not None:
+        elif action.action_type == ActionType.WITCH_POISON and action.target_id is not None:
             self.pending_deaths[action.target_id] = ActionType.WITCH_POISON
             self._logger.info(
                 "draft_witch_poison",
@@ -570,7 +561,7 @@ class ActionResolver:
         """记录已消费毒药的女巫 ID，防止重复消费。"""
 
         for action in self.pending_actions:
-            if action.action_type == ActionType.WITCH_SAVE.value and action.target_id is not None:
+            if action.action_type == ActionType.WITCH_SAVE and action.target_id is not None:
                 witch = roles.get(action.actor_id)
                 if isinstance(witch, WitchRole):
                     if action.actor_id in consumed_antidote:
@@ -584,7 +575,7 @@ class ActionResolver:
                         target_id=action.target_id,
                     )
 
-            elif action.action_type == ActionType.WITCH_POISON.value and action.target_id is not None:
+            elif action.action_type == ActionType.WITCH_POISON and action.target_id is not None:
                 witch = roles.get(action.actor_id)
                 if isinstance(witch, WitchRole):
                     if action.actor_id in consumed_poison:
@@ -714,7 +705,7 @@ class ActionResolver:
 
         submitted_wolves = {
             a.actor_id for a in self.pending_actions
-            if a.action_type in (ActionType.WOLF_KILL.value, ActionType.PASS.value)
+            if a.action_type in (ActionType.WOLF_KILL, ActionType.PASS)
         }
         return set(alive_wolves).issubset(submitted_wolves)
 
@@ -735,9 +726,9 @@ class ActionResolver:
             if a.actor_id in witch_ids
         }
         witch_completed_actions = {
-            ActionType.WITCH_SAVE.value,
-            ActionType.WITCH_POISON.value,
-            ActionType.PASS.value,
+            ActionType.WITCH_SAVE,
+            ActionType.WITCH_POISON,
+            ActionType.PASS,
         }
         return bool(witch_actions & witch_completed_actions)
 
@@ -755,7 +746,7 @@ class ActionResolver:
         seer_actions = {
             a.actor_id
             for a in self.pending_actions
-            if a.action_type == ActionType.SEER_CHECK.value
+            if a.action_type == ActionType.SEER_CHECK
         }
         return bool(set(seer_ids) & seer_actions)
 

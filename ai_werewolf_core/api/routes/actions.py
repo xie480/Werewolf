@@ -184,7 +184,7 @@ async def submit_action_internal(game_id: str, action: AgentAction) -> InternalS
         else:
             # 处理夜间技能动作（传入正确的 roles 映射）
             resolver = ActionResolver(game_id, event_bus)
-            await resolver.submit_action(action, roles=roles, current_phase=current_phase)
+            resolver.submit_action(action, roles=roles, current_phase=current_phase)
             
             # 检查是否满足提前结束条件
             from ai_werewolf_core.core.engine.game_engine import GameEngine
@@ -454,7 +454,7 @@ async def submit_action(game_id: str, request: SubmitActionRequest) -> ActionRes
 
         # 委托 ActionResolver 校验并暂存
         resolver = ActionResolver(game_id, event_bus)
-        await resolver.submit_action(action, roles={}, current_phase=current_phase)
+        resolver.submit_action(action, roles={}, current_phase=current_phase)
 
         logger.info(
             "night_action_submitted",
