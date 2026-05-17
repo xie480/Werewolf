@@ -108,6 +108,18 @@ const currentInnerThoughtSpeakerId = computed(() => {
 const currentInnerThought = computed(() => {
   return store.currentGameState.currentInnerThought?.innerThought ?? null
 })
+
+/** 跳过当前阶段（跳转到下一个阶段事件） */
+function skipCurrentPhase() {
+  const events = store.allEvents
+  const nextPhaseEvent = events.find(e => e.seq_num > store.currentSeqId && e.event_type === 'PHASE_TRANSITION_EVENT')
+  if (nextPhaseEvent) {
+    store.seek(nextPhaseEvent.seq_num)
+  } else {
+    // 如果没有下一个阶段，直接跳到最后
+    store.seek(store.maxSeqId)
+  }
+}
 </script>
 
 <template>
@@ -129,6 +141,9 @@ const currentInnerThought = computed(() => {
     <div class="judge-area">
       <div class="judge-phase-indicator">
         <span class="ring-phase">{{ phaseLabel }}</span>
+        <button class="skip-phase-btn" @click="skipCurrentPhase" title="跳过当前阶段">
+          ⏭ 跳过
+        </button>
       </div>
     </div>
 
@@ -261,11 +276,15 @@ const currentInnerThought = computed(() => {
 
 /* 顶部法官区 */
 .judge-area {
-  margin-top: 60px;
+  position: absolute;
+  top: 60px;
+  left: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  z-index: 10;
+  z-index: 100;
+  pointer-events: none; /* 调整为完全透明，移除多余的遮罩层，解决视觉和交互遮挡 */
 }
 .judge-phase-indicator {
   margin-top: 10px;
@@ -275,12 +294,41 @@ const currentInnerThought = computed(() => {
   border-radius: 24px;
   box-shadow: 0 0 15px rgba(255, 215, 0, 0.1);
   backdrop-filter: blur(4px);
+  pointer-events: auto; /* 核心阶段显示区域保留交互 */
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .ring-phase {
   font-size: 16px;
   font-weight: bold;
   color: #ffd700;
   letter-spacing: 2px;
+}
+
+.skip-phase-btn {
+  padding: 2px 12px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffd700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.skip-phase-btn:hover {
+  background: rgba(255, 215, 0, 0.2);
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
+  transform: scale(1.05);
+}
+
+.skip-phase-btn:active {
+  transform: scale(0.95);
 }
 
 /* 主战场布局 */

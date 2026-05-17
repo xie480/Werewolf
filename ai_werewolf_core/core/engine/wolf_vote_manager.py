@@ -381,10 +381,10 @@ class WolfVoteManager:
         """
         # ── 校验 1: 动作类型 ──
         action_type_str = action.action_type.value if hasattr(action.action_type, 'value') else str(action.action_type)
-        if action.action_type != ActionType.WOLF_KILL:
+        if action.action_type not in (ActionType.WOLF_KILL, ActionType.PASS):
             raise ActionValidationError(
                 action,
-                f"非狼人投票动作: 期望 {ActionType.WOLF_KILL.value}，"
+                f"非狼人投票动作: 期望 {ActionType.WOLF_KILL.value} 或 {ActionType.PASS.value}，"
                 f"实际 {action_type_str}",
             )
 
@@ -410,7 +410,7 @@ class WolfVoteManager:
             )
 
         # ── 校验 4: 目标有效性 ──
-        if action.target_id is not None:
+        if action.action_type == ActionType.WOLF_KILL and action.target_id is not None:
             target_role = roles.get(action.target_id)
             if target_role is None:
                 raise ActionValidationError(
@@ -419,7 +419,7 @@ class WolfVoteManager:
                 )
 
         # ── 校验 5: 不能刀自己 ──
-        if action.target_id == voter_id:
+        if action.action_type == ActionType.WOLF_KILL and action.target_id == voter_id:
             raise ActionValidationError(
                 action,
                 "狼人不能刀自己",
@@ -427,6 +427,9 @@ class WolfVoteManager:
 
         # ── 通过 Lua 脚本原子写入 Redis ──
         target_value = action.target_id or ""  # 空字符串表示弃权
+        if action.action_type == ActionType.PASS:
+            target_value = ""
+            
         timestamp = now_tz().isoformat()
 
         try:

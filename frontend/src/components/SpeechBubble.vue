@@ -8,6 +8,41 @@
 
 import { ref, watch, onBeforeUnmount } from 'vue'
 
+// ============================================================================
+// 拖拽交互逻辑
+// ============================================================================
+const position = ref({ x: 0, y: 0 })
+const isDragging = ref(false)
+let startPos = { x: 0, y: 0 }
+
+function onMouseDown(e: MouseEvent) {
+  if (e.button !== 0) return // 仅响应左键
+  if ((e.target as HTMLElement).tagName === 'BUTTON') return // 忽略按钮点击
+
+  isDragging.value = true
+  startPos = {
+    x: e.clientX - position.value.x,
+    y: e.clientY - position.value.y
+  }
+  
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
+}
+
+function onMouseMove(e: MouseEvent) {
+  if (!isDragging.value) return
+  position.value = {
+    x: e.clientX - startPos.x,
+    y: e.clientY - startPos.y
+  }
+}
+
+function onMouseUp() {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseup', onMouseUp)
+}
+
 const props = defineProps<{
   /** 发言内容 */
   content: string
@@ -83,11 +118,17 @@ watch(
 
 onBeforeUnmount(() => {
   stopTyping()
+  document.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseup', onMouseUp)
 })
 </script>
 
 <template>
-  <div class="speech-bubble">
+  <div
+    class="speech-bubble"
+    :style="{ '--drag-x': `${position.x}px`, '--drag-y': `${position.y}px` }"
+    @mousedown="onMouseDown"
+  >
     <div class="speech-header">
       <span class="speaker-name">{{ speakerName || speakerId }}</span>
       <button
@@ -114,6 +155,14 @@ onBeforeUnmount(() => {
   max-width: 480px;
   min-width: 200px;
   backdrop-filter: blur(8px);
+  cursor: grab;
+  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+  z-index: 1000;
+  position: relative;
+}
+
+.speech-bubble:active {
+  cursor: grabbing;
 }
 
 .speech-header {

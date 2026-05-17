@@ -15,7 +15,53 @@
  * - [`docs/plan/内心OS透视架构方案.md`](../../../docs/plan/内心OS透视架构方案.md)
  */
 
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
+
+// ============================================================================
+// 拖拽交互逻辑
+// ============================================================================
+const position = ref({ x: 0, y: 0 })
+const isDragging = ref(false)
+let startPos = { x: 0, y: 0 }
+
+function onMouseDown(e: MouseEvent) {
+  if (e.button !== 0) return // 仅响应左键
+  const target = e.target as HTMLElement
+  if (target.tagName === 'BUTTON') return // 忽略按钮点击
+  // 忽略滚动条区域的点击 (简单判断：如果点击在 os-body 内部且靠近右侧边缘，可能是滚动条)
+  if (target.closest('.os-body')) {
+    const rect = target.getBoundingClientRect()
+    if (e.clientX > rect.right - 12) return
+  }
+
+  isDragging.value = true
+  startPos = {
+    x: e.clientX - position.value.x,
+    y: e.clientY - position.value.y
+  }
+  
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
+}
+
+function onMouseMove(e: MouseEvent) {
+  if (!isDragging.value) return
+  position.value = {
+    x: e.clientX - startPos.x,
+    y: e.clientY - startPos.y
+  }
+}
+
+function onMouseUp() {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseup', onMouseUp)
+}
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseup', onMouseUp)
+})
 
 // ============================================================================
 // Props: 支持 GameBoard（实时）和 ReplayBoard（回放）两种来源
@@ -140,6 +186,8 @@ watch(
     v-if="hasInnerThought"
     class="inner-os-panel"
     :class="[`variant-${variant}`, { expanded: isExpanded }]"
+    :style="{ '--drag-x': `${position.x}px`, '--drag-y': `${position.y}px` }"
+    @mousedown="onMouseDown"
   >
     <!-- 面板头部 -->
     <div class="os-header" @click="isExpanded = !isExpanded">
@@ -212,8 +260,14 @@ watch(
   border-radius: 12px;
   backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(138, 43, 226, 0.2);
-  transition: all 0.3s ease;
+  transition: width 0.3s ease, min-width 0.3s ease; /* 移除 all 0.3s ease，避免拖拽卡顿 */
   font-family: 'Segoe UI', system-ui, sans-serif;
+  cursor: grab;
+  transform: translate(var(--drag-x, 0px), var(--drag-y, 0px));
+}
+
+.inner-os-panel:active {
+  cursor: grabbing;
 }
 
 .inner-os-panel:not(.expanded) {
@@ -235,7 +289,7 @@ watch(
   left: 100%;
   margin-left: 24px;
   top: 50%;
-  transform: translateY(-50%);
+  transform: translate(var(--drag-x, 0px), calc(-50% + var(--drag-y, 0px)));
 }
 
 /* Seat Right variant */
@@ -244,7 +298,7 @@ watch(
   right: 100%;
   margin-right: 24px;
   top: 50%;
-  transform: translateY(-50%);
+  transform: translate(var(--drag-x, 0px), calc(-50% + var(--drag-y, 0px)));
 }
 
 /* Speech variant */

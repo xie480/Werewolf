@@ -143,6 +143,21 @@ const voteSummary = computed(() => {
     })
     .sort((a, b) => a.voterSeat - b.voterSeat)
 })
+
+/** 判断当前是否为纯 AI 对局（观战模式） */
+const isSpectator = computed(() => {
+  return store.players.length > 0 && store.players.every(p => !p.is_human)
+})
+
+/** 跳过当前阶段（仅观战模式可用） */
+async function skipCurrentPhase() {
+  if (!store.gameId) return
+  try {
+    await store.advancePhase()
+  } catch (e) {
+    console.error('跳过阶段失败', e)
+  }
+}
 </script>
 
 <template>
@@ -166,6 +181,9 @@ const voteSummary = computed(() => {
       <div class="judge-phase-indicator">
         <span class="ring-phase">{{ phaseLabel }}</span>
         <span v-if="store.phaseCountdown > 0" class="countdown-badge">{{ store.phaseCountdown }}s</span>
+        <button v-if="isSpectator" class="skip-phase-btn" @click="skipCurrentPhase" title="跳过当前阶段">
+          ⏭ 跳过
+        </button>
       </div>
     </div>
 
@@ -323,11 +341,15 @@ const voteSummary = computed(() => {
 
 /* 顶部法官区 */
 .judge-area {
-  margin-top: 80px; /* 与 top-bar 留出间距，避免遮挡左侧最上侧玩家的发言/内心OS */
+  position: absolute;
+  top: 80px;
+  left: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  z-index: 10;
+  z-index: 100;
+  pointer-events: none; /* 调整为完全透明，移除多余的遮罩层，解决视觉和交互遮挡 */
 }
 .judge-phase-indicator {
   margin-top: 10px;
@@ -337,6 +359,10 @@ const voteSummary = computed(() => {
   border-radius: 24px;
   box-shadow: 0 0 15px rgba(255, 215, 0, 0.1);
   backdrop-filter: blur(4px);
+  pointer-events: auto; /* 核心阶段显示区域保留交互 */
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .ring-phase {
   font-size: 16px;
@@ -346,7 +372,6 @@ const voteSummary = computed(() => {
 }
 
 .countdown-badge {
-  margin-left: 12px;
   padding: 2px 12px;
   background: rgba(255, 215, 0, 0.2);
   border: 1px solid rgba(255, 215, 0, 0.4);
@@ -358,6 +383,31 @@ const voteSummary = computed(() => {
   text-align: center;
   display: inline-block;
   animation: countdown-pulse 1s ease-in-out infinite;
+}
+
+.skip-phase-btn {
+  padding: 2px 12px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffd700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.skip-phase-btn:hover {
+  background: rgba(255, 215, 0, 0.2);
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
+  transform: scale(1.05);
+}
+
+.skip-phase-btn:active {
+  transform: scale(0.95);
 }
 
 @keyframes countdown-pulse {
