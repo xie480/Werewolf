@@ -254,10 +254,8 @@ const actionIcon = computed(() => {
   }
 }
 
-/* 夜晚行动玩家高亮缩放 */
-.player-seat--acting {
-  transform: scale(1.08);
-}
+/* 夜晚行动玩家：不需要缩放，只保留呼吸灯描边即可 */
+/* .player-seat--acting { transform: scale(1.08); } */
 
 /* 行动目标标记 Badge */
 .action-target-badge {

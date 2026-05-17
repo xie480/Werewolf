@@ -323,7 +323,7 @@ const voteSummary = computed(() => {
 
 /* 顶部法官区 */
 .judge-area {
-  margin-top: 60px; /* 与 top-bar 留出间距 */
+  margin-top: 80px; /* 与 top-bar 留出间距，避免遮挡左侧最上侧玩家的发言/内心OS */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -371,12 +371,12 @@ const voteSummary = computed(() => {
   }
 }
 
-/* 主战场布局 */
+/* 主战场布局 - 增加顶部内边距，防止阶段指示栏遮挡左侧最上侧玩家的发言/内心OS */
 .main-battlefield {
   flex: 1;
   display: flex;
   justify-content: space-between;
-  padding: 80px 40px 120px 40px; /* 顶部留出 TopBar 空间(80px)，底部留出 ActionPanel 空间(120px) */
+  padding: 130px 40px 120px 40px; /* 顶部留出阶段指示栏空间(130px)，底部留出 ActionPanel 空间(120px) */
   overflow: hidden;
   z-index: 10;
 }
@@ -395,8 +395,8 @@ const voteSummary = computed(() => {
 /* 座位容器 */
 .seat-wrapper {
   /* 核心魔法：根据屏幕高度动态计算最大高度，按最多 5 张卡来算 */
-  /* 100vh 减去顶部(80px)、底部(120px)和间距(约40px)，除以 5 */
-  height: min(160px, calc((100vh - 240px) / 5)); 
+  /* 100vh 减去顶部(130px)、底部(120px)和间距(约40px)，除以 5 */
+  height: min(160px, calc((100vh - 290px) / 5));
   display: flex;
   align-items: center;
   justify-content: center;
