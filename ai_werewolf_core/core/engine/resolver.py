@@ -229,7 +229,7 @@ class ActionResolver:
     # 动作接收与校验
     # ------------------------------------------------------------------
 
-    def submit_action(
+    async def submit_action(
         self,
         action: AgentAction,
         roles: Dict[str, BaseRole],
@@ -302,6 +302,27 @@ class ActionResolver:
 
         # ── 更新草稿死亡名单（仅夜晚致命动作） ──
         self._update_draft_deaths(action, actor_role)
+
+        # ── 发布私密行动事件（用于前端透视和上帝视角展示） ──
+        event = Event(
+            event_id=str(uuid.uuid4()),
+            game_id=self.game_id,
+            seq_num=0,
+            event_type=EventType.PRIVATE_RESOLUTION_EVENT,
+            visibility=Visibility.PRIVATE,
+            target_agents=[action.actor_id],
+            timestamp=now_tz(),
+            payload={
+                "actor_id": action.actor_id,
+                "action_type": action.action_type.value if hasattr(action.action_type, 'value') else str(action.action_type),
+                "target_id": action.target_id,
+                "inner_thought": action.inner_thought,
+                "reason": action.reason,
+                "round": action.round,
+                "phase": current_phase.value,
+            },
+        )
+        await self.event_bus.publish(event)
 
         return True
 

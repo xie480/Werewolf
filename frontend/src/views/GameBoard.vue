@@ -173,12 +173,19 @@ const voteSummary = computed(() => {
     <div class="main-battlefield">
       <!-- 左侧玩家 -->
       <div class="side-column left-side">
-        <div v-for="player in leftPlayers" :key="player.player_id" class="seat-wrapper">
+        <div v-for="player in leftPlayers" :key="player.player_id" class="seat-wrapper" style="position: relative;">
           <PlayerSeat
             :player="player"
             :is-speaker="player.player_id === store.currentSpeaker"
             position="left"
             :target-seat="getTargetSeat(player.action_target)"
+          />
+          <InnerOSPanel
+            v-if="store.currentInnerThought?.speakerId === player.player_id && store.currentInnerThought?.type === 'action'"
+            :speaker-id="player.player_id"
+            :speaker-name="player.name"
+            :inner-thought="store.currentInnerThought.innerThought"
+            variant="seat-left"
           />
         </div>
       </div>
@@ -200,23 +207,38 @@ const voteSummary = computed(() => {
         </div>
 
         <!-- 发言气泡（非 VOTE_RESOLVE 阶段显示） -->
-        <div v-else-if="latestSpeech" class="speech-area">
+        <div v-else-if="latestSpeech" class="speech-area" style="position: relative;">
           <SpeechBubble
             :speaker-id="latestSpeech.speakerId"
             :speaker-name="latestSpeech.speakerName"
             :content="latestSpeech.content"
+          />
+          <InnerOSPanel
+            v-if="store.currentInnerThought?.speakerId === latestSpeech.speakerId && store.currentInnerThought?.type === 'speech'"
+            :speaker-id="latestSpeech.speakerId"
+            :speaker-name="latestSpeech.speakerName"
+            :speech-content="store.currentSpeechContent"
+            :inner-thought="store.currentInnerThought.innerThought"
+            variant="speech"
           />
         </div>
       </div>
 
       <!-- 右侧玩家 -->
       <div class="side-column right-side">
-        <div v-for="player in rightPlayers" :key="player.player_id" class="seat-wrapper">
+        <div v-for="player in rightPlayers" :key="player.player_id" class="seat-wrapper" style="position: relative;">
           <PlayerSeat
             :player="player"
             :is-speaker="player.player_id === store.currentSpeaker"
             position="right"
             :target-seat="getTargetSeat(player.action_target)"
+          />
+          <InnerOSPanel
+            v-if="store.currentInnerThought?.speakerId === player.player_id && store.currentInnerThought?.type === 'action'"
+            :speaker-id="player.player_id"
+            :speaker-name="player.name"
+            :inner-thought="store.currentInnerThought.innerThought"
+            variant="seat-right"
           />
         </div>
       </div>
@@ -227,13 +249,6 @@ const voteSummary = computed(() => {
       <ConnectionIndicator />
       <ActionPanel />
     </div>
-
-    <!-- 内心OS面板（纯人机对局 GOD 视角下展示） -->
-    <InnerOSPanel
-      :speaker-id="store.currentSpeaker"
-      :speech-content="store.currentSpeechContent"
-      :inner-thought="store.currentInnerThought?.innerThought ?? null"
-    />
   </div>
 </template>
 

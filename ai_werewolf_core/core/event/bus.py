@@ -87,16 +87,16 @@ class EventBus:
         # Redis 客户端引用 (懒初始化)
         self._redis_client: Optional[aioredis.Redis] = None
 
-        # 订阅者字典：str -> List[EventHandler]
+        # 订阅者字典：str -> List[tuple[EventHandler, bool]]
         from collections import defaultdict
-        self._subscribers: dict[str, list[EventHandler]] = defaultdict(list)
+        self._subscribers: dict[str, list[tuple[EventHandler, bool]]] = defaultdict(list)
         # 全局订阅者（订阅所有事件）
-        self._global_subscribers: list[EventHandler] = []
+        self._global_subscribers: list[tuple[EventHandler, bool]] = []
 
         # 默认添加日志订阅者
         self.subscribe_all(self._default_log_subscriber)
-        # 添加数据库持久化订阅者，实现事件溯源存储
-        self.subscribe_all(self._persist_to_db)
+        # 添加数据库持久化订阅者，实现事件溯源存储 (仅本地执行，避免重复持久化)
+        self.subscribe_all(self._persist_to_db, local_only=True)
 
     async def start_listening(self) -> None:
         """启动 Redis Pub/Sub 监听，用于跨进程事件分发。
@@ -205,8 +205,17 @@ class EventBus:
         key = event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type)
         handlers.extend(self._subscribers.get(key, []))
 
-        for handler in handlers:
-            # 如果是远程事件，跳过持久化，因为发布方已经持久化过了
+        for handler_info in handlers:
+            if isinstance(handler_info, tuple):
+                handler, local_only = handler_info
+            else:
+                handler = handler_info
+                local_only = False
+
+            if is_remote and local_only:
+                continue
+                
+            # 兼容旧的硬编码逻辑（以防万一）
             if is_remote and getattr(handler, '__name__', '') == '_persist_to_db':
                 continue
                 
@@ -618,31 +627,35 @@ class EventBus:
     # 订阅管理
     # ------------------------------------------------------------------
 
-    def subscribe(self, event_type: EventType, handler: EventHandler) -> None:
+    def subscribe(self, event_type: EventType, handler: EventHandler, local_only: bool = False) -> None:
         """订阅特定类型的事件。
 
         Args:
             event_type: 要订阅的事件类型。
             handler: 事件处理回调函数。
+            local_only: 是否仅在本地发布事件时触发（忽略通过 Pub/Sub 接收的远程事件）。
         """
         key = event_type.value if hasattr(event_type, 'value') else str(event_type)
-        self._subscribers[key].append(handler)
+        self._subscribers[key].append((handler, local_only))
         logger.debug(
             "event_subscribe",
             event_type=key,
             handler=handler.__name__ if hasattr(handler, '__name__') else str(handler),
+            local_only=local_only,
         )
 
-    def subscribe_all(self, handler: EventHandler) -> None:
+    def subscribe_all(self, handler: EventHandler, local_only: bool = False) -> None:
         """订阅所有类型的事件（全局订阅者）。
 
         Args:
             handler: 事件处理回调函数。
+            local_only: 是否仅在本地发布事件时触发。
         """
-        self._global_subscribers.append(handler)
+        self._global_subscribers.append((handler, local_only))
         logger.debug(
             "global_subscribe",
             handler=handler.__name__ if hasattr(handler, '__name__') else str(handler),
+            local_only=local_only,
         )
 
     # ------------------------------------------------------------------

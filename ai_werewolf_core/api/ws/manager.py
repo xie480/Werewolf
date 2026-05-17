@@ -104,12 +104,20 @@ class ConnectionManager:
 
         dead: list[WebSocket] = []
         message_json = json.dumps(message, ensure_ascii=False)
+        
+        visibility = message.get("visibility")
+        target_agents = message.get("target_agents", [])
 
         for ws, player_id in list(self._connections[game_id].items()):
             if ws is exclude:
                 continue
 
-            # 视角隔离：如果是 POV 视角（player_id != None），且事件包含 inner_thought，
+            # 视角隔离 1: PRIVATE/FACTION 事件过滤
+            if visibility and visibility != Visibility.PUBLIC.value:
+                if player_id is not None and player_id not in target_agents:
+                    continue  # POV 模式下，非目标玩家不可见私有事件
+
+            # 视角隔离 2：如果是 POV 视角（player_id != None），且事件包含 inner_thought，
             # 且不是自己发出的动作，则剔除 inner_thought
             ws_message = message
             if player_id is not None and "payload" in message:
@@ -160,22 +168,19 @@ class ConnectionManager:
     async def on_event(self, event: Event) -> None:
         """EventBus 事件回调 —— 将新事件推送给相关 WebSocket 客户端。
 
-        仅推送 PUBLIC 可见性的事件到对应 game_id 的所有连接。
-        PRIVATE 和 FACTION 事件不在 WebSocket 层面处理（由 Agent 拉取）。
+        推送所有事件到对应 game_id 的连接，由 broadcast_to_game 进行视角隔离。
 
         Args:
             event: EventBus 发布的新事件。
         """
-        # 仅推送 PUBLIC 事件——私有事件由 Agent 自行轮询拉取
-        if event.visibility != Visibility.PUBLIC:
-            return
-
         payload = {
             "type": "event",
             "event_id": event.event_id,
             "game_id": event.game_id,
             "seq_num": event.seq_num,
             "event_type": event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
+            "visibility": event.visibility.value if hasattr(event.visibility, 'value') else str(event.visibility),
+            "target_agents": event.target_agents,
             "timestamp": event.timestamp.isoformat(),
             "payload": event.payload,
         }

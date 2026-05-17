@@ -10,6 +10,7 @@ export interface ReplayGameState {
   currentPhase: string | null
   chatHistory: EventLogEntry[]
   innerThoughts: Record<number, string> // seq_num -> inner_thought
+  currentInnerThought: { speakerId: string, innerThought: string } | null
 }
 
 export const useReplayStore = defineStore('replay', () => {
@@ -59,7 +60,8 @@ export const useReplayStore = defineStore('replay', () => {
       currentDay: 0,
       currentPhase: null,
       chatHistory: [],
-      innerThoughts: {}
+      innerThoughts: {},
+      currentInnerThought: null
     }
 
     if (!replayData.value) return state
@@ -85,27 +87,38 @@ export const useReplayStore = defineStore('replay', () => {
       // 提取 inner_thought
       if (event.payload && typeof event.payload.inner_thought === 'string') {
         state.innerThoughts[event.seq_num] = event.payload.inner_thought
+        const actorId = (event.payload.actor_id || event.payload.speaker_id || event.payload.voter_id) as string | undefined
+        if (actorId) {
+          state.currentInnerThought = {
+            speakerId: actorId,
+            innerThought: event.payload.inner_thought
+          }
+        }
       }
 
       switch (event.event_type) {
         case 'PHASE_TRANSITION_EVENT':
           state.currentDay = (event.payload.round as number) || state.currentDay
           state.currentPhase = (event.payload.new_phase as string) || state.currentPhase
-          // 阶段切换时清除所有人的发言状态
+          // 阶段切换时清除所有人的发言状态和行动目标
           Object.values(state.players).forEach(p => {
             p.is_speaking = false
             p.last_speech = undefined
+            p.action_target = null
+            p.action_type = null
           })
+          state.currentInnerThought = null
           break
         case 'PLAYER_DEATH_EVENT':
         case 'VOTED_OUT_EVENT':
-          const deadId = event.payload.player_id as string || event.payload.target_id as string
+        case 'PLAYER_DEATH':
+          const deadId = event.payload.player_id as string || event.payload.target_id as string || event.payload.dead_player_id as string
           if (deadId && state.players[deadId]) {
             state.players[deadId].is_alive = false
           }
           break
         case 'SPEECH_EVENT':
-          const speakerId = event.payload.actor_id as string
+          const speakerId = event.payload.actor_id as string || event.payload.speaker_id as string
           const content = event.payload.content as string
           if (speakerId && state.players[speakerId]) {
             // 清除其他人的发言状态
@@ -122,12 +135,34 @@ export const useReplayStore = defineStore('replay', () => {
           })
           break
         case 'SYSTEM_ANNOUNCEMENT_EVENT':
+        case 'SYSTEM_ANNOUNCEMENT':
           state.chatHistory.push({
             seq_num: event.seq_num,
             event_type: event.event_type,
             timestamp: event.timestamp,
-            announcement: event.payload.message as string
+            announcement: (event.payload.message || event.payload.announcement || event.payload.content) as string
           })
+          break
+        case 'VOTE_EVENT':
+          {
+            const actorId = (event.payload.actor_id ?? event.payload.voter_id) as string | undefined
+            const targetId = event.payload.target_id as string | null
+            if (actorId && state.players[actorId]) {
+              state.players[actorId].action_target = targetId ?? 'PASS'
+              state.players[actorId].action_type = 'VOTE'
+            }
+          }
+          break
+        case 'PRIVATE_RESOLUTION_EVENT':
+          {
+            const actorId = event.payload.actor_id as string | undefined
+            const targetId = event.payload.target_id as string | null
+            const actionType = event.payload.action_type as string | undefined
+            if (actorId && actionType && state.players[actorId]) {
+              state.players[actorId].action_target = targetId ?? 'PASS'
+              state.players[actorId].action_type = actionType
+            }
+          }
           break
       }
     }

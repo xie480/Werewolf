@@ -57,6 +57,7 @@ async def list_events(
             agent_id="",  # 空字符串 → 仅返回 PUBLIC 事件
             start_seq=since_seq,
             count=limit,
+            is_god_mode=True,  # 纯人机对局默认开启上帝视角，返回所有事件
         )
 
         event_list = [

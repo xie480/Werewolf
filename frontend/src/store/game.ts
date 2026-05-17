@@ -82,7 +82,7 @@ export const useGameStore = defineStore('game', () => {
   const error = ref<string | null>(null)
 
   /** 当前发言人的内心 OS（GOD 视角下展示） */
-  const currentInnerThought = ref<{ speakerId: string; innerThought: string } | null>(null)
+  const currentInnerThought = ref<{ speakerId: string; innerThought: string; type: 'speech' | 'action' } | null>(null)
 
   /** 阶段倒计时剩余秒数（0 表示未启动或已到期） */
   const phaseCountdown = ref<number>(0)
@@ -348,13 +348,12 @@ export const useGameStore = defineStore('game', () => {
     while (hasMore) {
       const result = await eventsApi.getEvents(gameId.value, sinceSeq, 100)
       for (const e of result.events) {
-        const entry = _convertEvent(e)
-        if (entry) {
-          events.value.push(entry)
-        }
-        if (e.seq_num > lastSeqNum.value) {
-          lastSeqNum.value = e.seq_num
-        }
+        // 模拟 WebSocket 事件以复用状态更新逻辑（恢复历史状态）
+        handleWsEvent({
+          type: 'event',
+          game_id: gameId.value,
+          ...e
+        } as EventPushMessage)
       }
       hasMore = result.has_more
       sinceSeq = lastSeqNum.value
@@ -446,6 +445,7 @@ export const useGameStore = defineStore('game', () => {
             currentInnerThought.value = {
               speakerId,
               innerThought: event.payload.inner_thought as string,
+              type: 'speech',
             }
           }
         }
@@ -477,6 +477,13 @@ export const useGameStore = defineStore('game', () => {
             if (player) {
               player.action_target = targetId ?? 'PASS'
               player.action_type = actionType
+            }
+          }
+          if (actorId && event.payload.inner_thought) {
+            currentInnerThought.value = {
+              speakerId: actorId,
+              innerThought: event.payload.inner_thought as string,
+              type: 'action',
             }
           }
         }
@@ -582,40 +589,6 @@ export const useGameStore = defineStore('game', () => {
     round.value = result.round
   }
 
-  /** 将 API EventResponse 转换为 EventLogEntry */
-  function _convertEvent(e: {
-    event_id: string
-    seq_num: number
-    event_type: string
-    timestamp: string
-    payload: Record<string, unknown>
-  }): EventLogEntry | null {
-    const base: EventLogEntry = {
-      seq_num: e.seq_num,
-      event_type: e.event_type,
-      timestamp: e.timestamp,
-    }
-
-    switch (e.event_type) {
-      case EventType.SPEECH_EVENT:
-        base.speaker_id = e.payload.actor_id as string
-        base.content = e.payload.content as string
-        break
-      case EventType.SYSTEM_ANNOUNCEMENT:
-        base.announcement = (e.payload.announcement ?? e.payload.content) as string
-        break
-      case EventType.PLAYER_DEATH:
-        base.dead_player_id = (e.payload.dead_player_id ?? e.payload.player_id) as string
-        break
-      case EventType.PHASE_TRANSITION_EVENT:
-        base.from_phase = e.payload.old_phase as string
-        base.to_phase = e.payload.new_phase as string
-        break
-    }
-
-    return base
-  }
-
   /** 将 WebSocket EventPushMessage 转换为 EventLogEntry */
   function _convertWsEvent(event: EventPushMessage): EventLogEntry | null {
     const base: EventLogEntry = {
@@ -639,6 +612,9 @@ export const useGameStore = defineStore('game', () => {
       case EventType.PHASE_TRANSITION_EVENT:
         base.from_phase = event.payload.old_phase as string
         base.to_phase = event.payload.new_phase as string
+        break
+      case EventType.PRIVATE_RESOLUTION_EVENT:
+        base.inner_thought = event.payload.inner_thought as string | undefined
         break
     }
 

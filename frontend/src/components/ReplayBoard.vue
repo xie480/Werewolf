@@ -101,17 +101,7 @@ function getTargetSeat(targetId?: string | null): number | 'PASS' | null {
 
 /** 当前发言对应的内心 OS（从 ReplayStore 的 innerThoughts 中提取） */
 const currentInnerThought = computed(() => {
-  const speech = latestSpeech.value
-  if (!speech) return null
-  const chatHistory = store.currentGameState.chatHistory
-  const lastSpeechEvent = [...chatHistory].reverse().find(
-    e => e.event_type === 'SPEECH_EVENT' && e.speaker_id === speech.speakerId
-  )
-  if (lastSpeechEvent?.seq_num) {
-    const thought = store.currentGameState.innerThoughts[lastSpeechEvent.seq_num]
-    if (thought) return thought
-  }
-  return null
+  return store.currentGameState.currentInnerThought?.innerThought ?? null
 })
 </script>
 
@@ -141,42 +131,57 @@ const currentInnerThought = computed(() => {
     <div class="main-battlefield">
       <!-- 左侧玩家 -->
       <div class="side-column left-side">
-        <div v-for="player in leftPlayers" :key="player.player_id" class="seat-wrapper">
+        <div v-for="player in leftPlayers" :key="player.player_id" class="seat-wrapper" style="position: relative;">
           <PlayerSeat
             :player="player"
             :is-speaker="player.player_id === currentSpeakerId"
             position="left"
             :target-seat="getTargetSeat(player.action_target)"
           />
+          <InnerOSPanel
+            v-if="store.currentGameState.currentInnerThought?.speakerId === player.player_id && !player.is_speaking"
+            :speaker-id="player.player_id"
+            :speaker-name="player.name"
+            :inner-thought="currentInnerThought"
+            variant="seat-left"
+          />
         </div>
       </div>
 
       <!-- 中央发言区域 -->
       <div class="center-area">
-        <div v-if="latestSpeech" class="speech-area">
+        <div v-if="latestSpeech" class="speech-area" style="position: relative;">
           <SpeechBubble :speaker-id="latestSpeech.speakerId" :speaker-name="latestSpeech.speakerName" :content="latestSpeech.content" />
+          <InnerOSPanel
+            v-if="store.currentGameState.currentInnerThought?.speakerId === latestSpeech.speakerId && currentSpeakerId === latestSpeech.speakerId"
+            :speaker-id="latestSpeech.speakerId"
+            :speaker-name="latestSpeech.speakerName"
+            :speech-content="latestSpeech.content"
+            :inner-thought="currentInnerThought"
+            variant="speech"
+          />
         </div>
       </div>
 
       <!-- 右侧玩家 -->
       <div class="side-column right-side">
-        <div v-for="player in rightPlayers" :key="player.player_id" class="seat-wrapper">
+        <div v-for="player in rightPlayers" :key="player.player_id" class="seat-wrapper" style="position: relative;">
           <PlayerSeat
             :player="player"
             :is-speaker="player.player_id === currentSpeakerId"
             position="right"
             :target-seat="getTargetSeat(player.action_target)"
           />
+          <InnerOSPanel
+            v-if="store.currentGameState.currentInnerThought?.speakerId === player.player_id && !player.is_speaking"
+            :speaker-id="player.player_id"
+            :speaker-name="player.name"
+            :inner-thought="currentInnerThought"
+            variant="seat-right"
+          />
         </div>
       </div>
     </div>
-
-    <!-- 内心戏面板 -->
-    <InnerOSPanel
-      :speaker-id="currentSpeakerId"
-      :speech-content="latestSpeech?.content ?? null"
-      :inner-thought="currentInnerThought"
-    />
   </div>
 </template>
 

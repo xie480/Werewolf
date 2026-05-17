@@ -21,16 +21,22 @@ import { ref, computed, watch } from 'vue'
 // Props: 支持 GameBoard（实时）和 ReplayBoard（回放）两种来源
 // ============================================================================
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   /** 当前发言的玩家 ID */
   speakerId: string | null
+  /** 当前发言的玩家名称 */
+  speakerName?: string | null
   /** 发言内容（公开的表面发言） */
-  speechContent: string | null
+  speechContent?: string | null
   /** 内心 OS 文本（来自事件 payload.inner_thought） */
   innerThought: string | null
   /** AI 玩家的嫌疑人列表（来自 suspect_heatmap） */
   suspectList?: Record<string, number> | null
-}>()
+  /** 动态定位模式 */
+  variant?: 'fixed' | 'seat-left' | 'seat-right' | 'speech'
+}>(), {
+  variant: 'fixed'
+})
 
 // ============================================================================
 // 状态
@@ -130,7 +136,7 @@ watch(
   <div
     v-if="hasInnerThought"
     class="inner-os-panel"
-    :class="{ expanded: isExpanded }"
+    :class="[`variant-${variant}`, { expanded: isExpanded }]"
   >
     <!-- 面板头部 -->
     <div class="os-header" @click="isExpanded = !isExpanded">
@@ -143,7 +149,7 @@ watch(
     <div v-if="isExpanded" class="os-body">
       <!-- 发言人提示 -->
       <div class="os-speaker-hint">
-        正在透视 <strong>{{ speakerId }}</strong> 的内心世界...
+        正在透视 <strong>{{ speakerName || '未知玩家' }}</strong> 的内心世界...
       </div>
 
       <!-- 公开表面发言（低调展示，形成反差） -->
@@ -196,11 +202,7 @@ watch(
 
 <style scoped>
 .inner-os-panel {
-  position: fixed;
-  right: 16px;
-  top: 80px;
   width: 320px;
-  max-width: calc(100vw - 32px);
   z-index: 1000;
   background: rgba(10, 10, 30, 0.92);
   border: 1px solid rgba(138, 43, 226, 0.4);
@@ -214,6 +216,40 @@ watch(
 .inner-os-panel:not(.expanded) {
   width: auto;
   min-width: 140px;
+}
+
+/* Fixed variant (fallback) */
+.variant-fixed {
+  position: fixed;
+  right: 16px;
+  top: 80px;
+  max-width: calc(100vw - 32px);
+}
+
+/* Seat Left variant */
+.variant-seat-left {
+  position: absolute;
+  left: 100%;
+  margin-left: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Seat Right variant */
+.variant-seat-right {
+  position: absolute;
+  right: 100%;
+  margin-right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Speech variant */
+.variant-speech {
+  position: absolute;
+  left: 100%;
+  margin-left: 24px;
+  top: 0;
 }
 
 .os-header {

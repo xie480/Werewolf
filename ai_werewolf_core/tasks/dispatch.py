@@ -17,7 +17,8 @@ async def on_phase_transition(event: Event):
     new_phase_str = payload.get("new_phase")
     round_num = payload.get("round", 1)
     
-    logger.info("on_phase_transition_called", game_id=game_id, new_phase=new_phase_str)
+    import os
+    logger.info("on_phase_transition_called", game_id=game_id, new_phase=new_phase_str, pid=os.getpid())
 
     if not new_phase_str:
         return
@@ -62,7 +63,7 @@ async def on_phase_transition(event: Event):
         if is_human:
             continue
             
-        logger.info("dispatching_agent_task", game_id=game_id, player_id=player_id, phase=new_phase.value)
+        logger.info("dispatching_agent_task", game_id=game_id, player_id=player_id, phase=new_phase.value, pid=os.getpid())
         import asyncio
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
@@ -79,4 +80,4 @@ async def on_phase_transition(event: Event):
 
 def register_dispatchers(event_bus):
     """注册事件分发器"""
-    event_bus.subscribe(EventType.PHASE_TRANSITION_EVENT, on_phase_transition)
+    event_bus.subscribe(EventType.PHASE_TRANSITION_EVENT, on_phase_transition, local_only=True)
