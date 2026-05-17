@@ -19,6 +19,7 @@ import PlayerSeat from '../components/PlayerSeat.vue'
 import SpeechBubble from '../components/SpeechBubble.vue'
 import AnnouncementBanner from '../components/AnnouncementBanner.vue'
 import ActionPanel from '../components/ActionPanel.vue'
+import InnerOSPanel from '../components/InnerOSPanel.vue'
 
 const props = defineProps<{
   gameId: string
@@ -226,6 +227,13 @@ const voteSummary = computed(() => {
       <ConnectionIndicator />
       <ActionPanel />
     </div>
+
+    <!-- 内心OS面板（纯人机对局 GOD 视角下展示） -->
+    <InnerOSPanel
+      :speaker-id="store.currentSpeaker"
+      :speech-content="store.currentSpeechContent"
+      :inner-thought="store.currentInnerThought?.innerThought ?? null"
+    />
   </div>
 </template>
 

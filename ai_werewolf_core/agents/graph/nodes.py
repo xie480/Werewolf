@@ -218,6 +218,7 @@ async def reasoning_node(state: AgentState) -> Dict[str, Any]:
                 "phase": current_phase.value,
                 "round": current_round,
                 "reason": parsed_data.internal_monologue,
+                "inner_thought": parsed_data.internal_monologue,
                 "confidence": parsed_data.confidence,
             }
             

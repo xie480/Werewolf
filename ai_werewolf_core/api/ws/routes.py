@@ -24,7 +24,7 @@ router = APIRouter()
 
 
 @router.websocket("/ws/games/{game_id}")
-async def game_events_ws(websocket: WebSocket, game_id: str):
+async def game_events_ws(websocket: WebSocket, game_id: str, player_id: str | None = None):
     """WebSocket 端点 —— 订阅对局实时事件推送。
 
     建立连接后，客户端将持续接收该对局的 PUBLIC 事件推送。
@@ -37,7 +37,7 @@ async def game_events_ws(websocket: WebSocket, game_id: str):
         websocket: FastAPI WebSocket 连接。
         game_id: 要订阅的对局 ID。
     """
-    await connection_manager.connect(game_id, websocket)
+    await connection_manager.connect(game_id, websocket, player_id)
 
     try:
         # 发送欢迎消息确认连接建立

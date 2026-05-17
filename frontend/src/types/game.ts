@@ -104,6 +104,8 @@ export interface EventLogEntry {
   speaker_id?: string
   /** 发言内容（SPEECH_EVENT 时有效） */
   content?: string
+  /** 内心 OS（用于透视，GOD 视角下可看到 AI 的真实推理过程） */
+  inner_thought?: string
   /** 系统公告文本（SYSTEM_ANNOUNCEMENT 时有效） */
   announcement?: string
   /** 死亡玩家 ID（PLAYER_DEATH 时有效） */

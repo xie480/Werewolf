@@ -98,6 +98,21 @@ function getTargetSeat(targetId?: string | null): number | 'PASS' | null {
   const targetPlayer = players.value.find(p => p.player_id === targetId)
   return targetPlayer ? targetPlayer.seat_number : null
 }
+
+/** 当前发言对应的内心 OS（从 ReplayStore 的 innerThoughts 中提取） */
+const currentInnerThought = computed(() => {
+  const speech = latestSpeech.value
+  if (!speech) return null
+  const chatHistory = store.currentGameState.chatHistory
+  const lastSpeechEvent = [...chatHistory].reverse().find(
+    e => e.event_type === 'SPEECH_EVENT' && e.speaker_id === speech.speakerId
+  )
+  if (lastSpeechEvent?.seq_num) {
+    const thought = store.currentGameState.innerThoughts[lastSpeechEvent.seq_num]
+    if (thought) return thought
+  }
+  return null
+})
 </script>
 
 <template>
@@ -157,7 +172,11 @@ function getTargetSeat(targetId?: string | null): number | 'PASS' | null {
     </div>
 
     <!-- 内心戏面板 -->
-    <InnerOSPanel />
+    <InnerOSPanel
+      :speaker-id="currentSpeakerId"
+      :speech-content="latestSpeech?.content ?? null"
+      :inner-thought="currentInnerThought"
+    />
   </div>
 </template>
 

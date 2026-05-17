@@ -172,6 +172,7 @@ async def submit_action_internal(game_id: str, action: AgentAction) -> InternalS
                 payload={
                     "actor_id": action.actor_id,
                     "content": action.speech_content or action.reason,
+                    "inner_thought": action.inner_thought,
                     "emotion": Emotion.NEUTRAL.value,
                     "phase": current_phase.value,
                     "round": action.round,
@@ -183,7 +184,7 @@ async def submit_action_internal(game_id: str, action: AgentAction) -> InternalS
         else:
             # 处理夜间技能动作（传入正确的 roles 映射）
             resolver = ActionResolver(game_id, event_bus)
-            await resolver.submit_action(action, roles=roles, current_phase=current_phase)
+            resolver.submit_action(action, roles=roles, current_phase=current_phase)
             
             # 检查是否满足提前结束条件
             from ai_werewolf_core.core.engine.game_engine import GameEngine

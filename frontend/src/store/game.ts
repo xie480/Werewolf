@@ -81,6 +81,9 @@ export const useGameStore = defineStore('game', () => {
   /** 错误信息 */
   const error = ref<string | null>(null)
 
+  /** 当前发言人的内心 OS（GOD 视角下展示） */
+  const currentInnerThought = ref<{ speakerId: string; innerThought: string } | null>(null)
+
   /** 阶段倒计时剩余秒数（0 表示未启动或已到期） */
   const phaseCountdown = ref<number>(0)
 
@@ -203,6 +206,16 @@ export const useGameStore = defineStore('game', () => {
     last_seq_num: lastSeqNum.value,
     ws_connected: wsConnected.value,
   }))
+
+  /** 公开表面发言内容（当前说话者的） */
+  const currentSpeechContent = computed(() => {
+    if (events.value.length === 0) return null
+    const lastEvent = events.value[events.value.length - 1]
+    if (lastEvent.event_type === EventType.SPEECH_EVENT) {
+      return lastEvent.content || null
+    }
+    return null
+  })
 
 
   // ------------------------------------------------------------------
@@ -401,6 +414,10 @@ export const useGameStore = defineStore('game', () => {
     // 转换为 EventLogEntry
     const entry = _convertWsEvent(event)
     if (entry) {
+      // 提取 inner_thought
+      if (event.payload && typeof event.payload.inner_thought === 'string') {
+        entry.inner_thought = event.payload.inner_thought
+      }
       events.value.push(entry)
     }
 
@@ -418,11 +435,18 @@ export const useGameStore = defineStore('game', () => {
         break
 
       case EventType.SPEECH_EVENT:
-        // 更新发言玩家标记
+        // 更新发言玩家标记，并提取内心 OS
         {
           const speakerId = (event.payload.actor_id ?? event.payload.speaker_id) as string | undefined
           for (const p of players.value) {
             p.is_speaking = p.player_id === speakerId
+          }
+          // 保存当前发言人的内心 OS（用于 InnerOSPanel 展示）
+          if (speakerId && event.payload.inner_thought) {
+            currentInnerThought.value = {
+              speakerId,
+              innerThought: event.payload.inner_thought as string,
+            }
           }
         }
         break
@@ -604,6 +628,7 @@ export const useGameStore = defineStore('game', () => {
       case EventType.SPEECH_EVENT:
         base.speaker_id = (event.payload.actor_id ?? event.payload.speaker_id) as string
         base.content = event.payload.content as string
+        base.inner_thought = event.payload.inner_thought as string | undefined
         break
       case EventType.SYSTEM_ANNOUNCEMENT:
         base.announcement = (event.payload.announcement ?? event.payload.content) as string
@@ -646,6 +671,8 @@ export const useGameStore = defineStore('game', () => {
     isNight,
     isDay,
     currentSpeaker,
+    currentInnerThought,
+    currentSpeechContent,
     context,
     // 动作
     createAndStart,

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from typing import Dict, Set
+from typing import Dict, Optional, Set
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
@@ -36,29 +36,34 @@ class ConnectionManager:
     管理所有活跃的 WebSocket 连接，按 game_id 分组路由事件推送。
     作为 EventBus 的全局订阅者，自动收到所有新事件并推送给相关客户端。
 
+    支持视角隔离（POV/上帝视角）：在 POV 模式下，系统会自动剔除其他玩家
+    事件中的 inner_thought 字段，防止玩家通过抓包作弊。
+
     Attributes:
-        _connections: ``game_id → set[WebSocket]`` 的连接池映射。
+        _connections: ``game_id → {WebSocket: player_id}`` 的连接池映射。
     """
 
     def __init__(self) -> None:
-        self._connections: Dict[str, Set[WebSocket]] = defaultdict(set)
+        self._connections: Dict[str, Dict[WebSocket, Optional[str]]] = defaultdict(dict)
 
     # ------------------------------------------------------------------
     # 生命周期管理
     # ------------------------------------------------------------------
 
-    async def connect(self, game_id: str, websocket: WebSocket) -> None:
+    async def connect(self, game_id: str, websocket: WebSocket, player_id: Optional[str] = None) -> None:
         """接受客户端连接并注册到连接池。
 
         Args:
             game_id: 客户端关注的对局 ID。
             websocket: FastAPI WebSocket 连接实例。
+            player_id: 客户端绑定的玩家 ID（用于视角隔离，None 表示上帝视角/GOD模式）。
         """
         await websocket.accept()
-        self._connections[game_id].add(websocket)
+        self._connections[game_id][websocket] = player_id
         logger.info(
             "ws_client_connected",
             game_id=game_id,
+            player_id=player_id,
             total_connections=len(self._connections[game_id]),
         )
 
@@ -69,13 +74,13 @@ class ConnectionManager:
             game_id: 对局 ID。
             websocket: 已断开的 WebSocket 连接。
         """
-        self._connections[game_id].discard(websocket)
+        self._connections[game_id].pop(websocket, None)
         if not self._connections[game_id]:
             del self._connections[game_id]
         logger.info(
             "ws_client_disconnected",
             game_id=game_id,
-            remaining=len(self._connections.get(game_id, set())),
+            remaining=len(self._connections.get(game_id, {})),
         )
 
     # ------------------------------------------------------------------
@@ -100,11 +105,31 @@ class ConnectionManager:
         dead: list[WebSocket] = []
         message_json = json.dumps(message, ensure_ascii=False)
 
-        for ws in self._connections[game_id]:
+        for ws, player_id in list(self._connections[game_id].items()):
             if ws is exclude:
                 continue
+
+            # 视角隔离：如果是 POV 视角（player_id != None），且事件包含 inner_thought，
+            # 且不是自己发出的动作，则剔除 inner_thought
+            ws_message = message
+            if player_id is not None and "payload" in message:
+                payload = message["payload"]
+                if isinstance(payload, dict) and "inner_thought" in payload:
+                    actor = payload.get("actor_id") or payload.get("actor")
+                    if actor != player_id:
+                        # 复制一份 message 以免影响其他连接
+                        ws_message = dict(message)
+                        ws_message["payload"] = dict(payload)
+                        del ws_message["payload"]["inner_thought"]
+
+            ws_message_json = (
+                json.dumps(ws_message, ensure_ascii=False)
+                if ws_message is not message
+                else message_json
+            )
+
             try:
-                await ws.send_text(message_json)
+                await ws.send_text(ws_message_json)
             except (WebSocketDisconnect, RuntimeError):
                 dead.append(ws)
             except Exception as e:
@@ -117,7 +142,7 @@ class ConnectionManager:
 
         # 清理已断开的连接
         for ws in dead:
-            self._connections[game_id].discard(ws)
+            self._connections[game_id].pop(ws, None)
 
     async def broadcast_all(self, message: dict) -> None:
         """向所有连接推送广播消息（如系统公告）。
