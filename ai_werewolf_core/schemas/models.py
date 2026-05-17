@@ -233,4 +233,4 @@ class AdapterResponse(BaseModel):
     is_success: bool
     error_message: Optional[str] = None
     retry_count: int = 0
-    usage: Dict[str, int] = Field(default_factory=dict)
+    usage: Dict[str, Any] = Field(default_factory=dict)

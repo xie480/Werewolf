@@ -38,7 +38,7 @@ Redis 全局时序发号器 —— 为事件 Event 提供全局唯一的 seq_num
 """
 
 import asyncio
-from typing import Optional
+from typing import Optional, Dict
 
 import redis.asyncio as aioredis
 
@@ -318,7 +318,7 @@ class RedisSeqGenerator:
 # ============================================================================
 
 _redis_seq_instance: Optional[RedisSeqGenerator] = None
-_instance_lock: Optional[asyncio.Lock] = None
+_instance_locks: Dict[int, asyncio.Lock] = {}
 
 
 async def get_redis_seq() -> RedisSeqGenerator:
@@ -331,13 +331,18 @@ async def get_redis_seq() -> RedisSeqGenerator:
         全局唯一的 RedisSeqGenerator 实例
     """
     global _redis_seq_instance
-    global _instance_lock
+    global _instance_locks
 
     if _redis_seq_instance is None:
-        if _instance_lock is None:
-            _instance_lock = asyncio.Lock()
+        try:
+            loop_id = id(asyncio.get_running_loop())
+        except RuntimeError:
+            loop_id = 0
             
-        async with _instance_lock:
+        if loop_id not in _instance_locks:
+            _instance_locks[loop_id] = asyncio.Lock()
+            
+        async with _instance_locks[loop_id]:
             # 双重检查锁定
             if _redis_seq_instance is None:
                 _redis_seq_instance = RedisSeqGenerator()
@@ -348,12 +353,17 @@ async def get_redis_seq() -> RedisSeqGenerator:
 async def reset_redis_seq() -> None:
     """重置 Redis 时序发号器单例 (仅用于测试)。"""
     global _redis_seq_instance
-    global _instance_lock
+    global _instance_locks
     
-    if _instance_lock is None:
-        _instance_lock = asyncio.Lock()
+    try:
+        loop_id = id(asyncio.get_running_loop())
+    except RuntimeError:
+        loop_id = 0
         
-    async with _instance_lock:
+    if loop_id not in _instance_locks:
+        _instance_locks[loop_id] = asyncio.Lock()
+        
+    async with _instance_locks[loop_id]:
         if _redis_seq_instance is not None:
             await _redis_seq_instance.close()
             _redis_seq_instance = None

@@ -31,6 +31,11 @@ celery_app = Celery(
     broker=settings.redis_url,
     backend=settings.redis_url,  # 结果后端（生产环境可切换为 DB）
 )
+# !!! IMPORTANT: 设置 default 应用 !!!
+# agent_tasks.py 中使用 @shared_task 装饰器，它绑定到 Celery 默认应用实例。
+# 若不调用 set_default()，@shared_task 将使用未配置的默认应用（broker=amqp://localhost:5672//），
+# 导致 EventBus 分发 PHASE_TRANSITION_EVENT 时出现 ConnectionRefusedError。
+celery_app.set_default()
 
 # ============================================================================
 # Celery 配置

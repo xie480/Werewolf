@@ -36,6 +36,7 @@ class AgentState(TypedDict, total=False):
 
     # 记忆与感知（由 memory_node 填充）
     memory_snapshot: Optional[Any]
+    full_prompt: str
 
     # 推理与决策（由 reasoning_node 填充）
     raw_llm_response: str
@@ -78,6 +79,7 @@ def create_initial_state(
         current_phase=current_phase,
         current_round=current_round,
         memory_snapshot=None,
+        full_prompt="",
         raw_llm_response="",
         internal_monologue="",
         suspect_list={},

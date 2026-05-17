@@ -25,12 +25,21 @@ class OpenAIAdapter(BaseModelAdapter):
         messages = [{"role": "user", "content": request.full_prompt}]
         
         # [DIAGNOSIS LOG] 验证 messages 结构和内容
+        has_json = "json" in messages[0]["content"].lower()
         logger.info(
             "llm_api_request_diagnosis",
             has_system_msg=any(m["role"] == "system" for m in messages),
-            user_msg_contains_json="json" in messages[0]["content"].lower()
+            user_msg_contains_json=has_json
         )
         
+        if not has_json:
+            logger.warning(
+                "missing_json_in_prompt",
+                game_id=request.game_id,
+                agent_id=request.agent_id,
+                prompt_preview=messages[0]["content"][:500] + "..." if len(messages[0]["content"]) > 500 else messages[0]["content"]
+            )
+            
         for attempt in range(max_retries):
             try:
                 response = await asyncio.wait_for(
@@ -38,8 +47,7 @@ class OpenAIAdapter(BaseModelAdapter):
                         model=self.config.get("model_name", "gpt-4-turbo"),
                         messages=messages,
                         temperature=request.temperature,
-                        max_tokens=request.max_tokens,
-                        response_format={"type": "json_object"}
+                        max_tokens=request.max_tokens
                     ),
                     timeout=self.config.get("timeout", 60.0)
                 )

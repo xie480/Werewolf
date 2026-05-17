@@ -119,8 +119,8 @@ class LuaScriptManager:
     _loaded: bool = False
     """标记是否已完成脚本加载"""
 
-    _lock: Optional[asyncio.Lock] = None
-    """异步锁，保护脚本加载的并发安全（懒初始化）"""
+    _locks: Dict[int, asyncio.Lock] = {}
+    """异步锁字典，按事件循环 ID 隔离"""
 
     # ------------------------------------------------------------------
     # 公开类方法
@@ -128,18 +128,24 @@ class LuaScriptManager:
 
     @classmethod
     def _get_lock(cls) -> asyncio.Lock:
-        """获取或创建异步锁（懒初始化）。
+        """获取或创建当前事件循环的异步锁（懒初始化）。
 
         **Why**: 避免在模块导入时创建 asyncio.Lock ——
         此时可能没有运行中的事件循环，导致锁被绑定到隐式/默认事件循环，
         后续在 asyncio.run() / new_event_loop() 中使用时异常。
+        支持多事件循环隔离。
 
         Returns:
             已初始化的 :class:`asyncio.Lock` 实例。
         """
-        if cls._lock is None:
-            cls._lock = asyncio.Lock()
-        return cls._lock
+        try:
+            loop_id = id(asyncio.get_running_loop())
+        except RuntimeError:
+            loop_id = 0
+            
+        if loop_id not in cls._locks:
+            cls._locks[loop_id] = asyncio.Lock()
+        return cls._locks[loop_id]
 
     @classmethod
     async def load_all_scripts(cls) -> None:

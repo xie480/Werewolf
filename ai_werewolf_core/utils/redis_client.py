@@ -33,7 +33,7 @@ PlayerStatusManager）都需要 Redis 连接。如果各模块独立创建连接
 """
 
 import asyncio
-from typing import Optional
+from typing import Optional, Dict
 
 import redis.asyncio as aioredis
 
@@ -87,10 +87,9 @@ class RedisClientManager:
         _lock: 异步锁，保护初始化竞态。
     """
 
-    _pool: Optional[aioredis.ConnectionPool] = None
-    _client: Optional[aioredis.Redis] = None
-    _initialized: bool = False
-    _lock: Optional[asyncio.Lock] = None
+    _pools: Dict[int, aioredis.ConnectionPool] = {}
+    _clients: Dict[int, aioredis.Redis] = {}
+    _locks: Dict[int, asyncio.Lock] = {}
 
     # ------------------------------------------------------------------
     # 公开类方法
@@ -98,10 +97,10 @@ class RedisClientManager:
 
     @classmethod
     async def get_client(cls) -> aioredis.Redis:
-        """获取全局 Redis 异步客户端。
+        """获取当前事件循环的 Redis 异步客户端。
 
         首次调用时懒初始化连接池和客户端。后续调用返回同一客户端实例。
-        使用双重检查锁定模式确保线程安全。
+        支持多事件循环（如 LangGraph 的独立循环）。
 
         Returns:
             已配置的 :class:`redis.asyncio.Redis` 客户端实例。
@@ -109,41 +108,25 @@ class RedisClientManager:
         Raises:
             redis.exceptions.ConnectionError: Redis 服务不可达。
         """
-        import asyncio
-        try:
-            current_loop = id(asyncio.get_running_loop())
-            logger.info(f"[DIAGNOSIS] get_client called. Current loop: {current_loop}")
-        except RuntimeError:
-            current_loop = "None"
-            logger.info("[DIAGNOSIS] get_client called. No running loop!")
+        loop_id = id(asyncio.get_running_loop())
 
-        if cls._initialized and cls._client is not None:
-            try:
-                logger.info(f"[DIAGNOSIS] Returning cached client to loop: {current_loop}. Is loop closed? {asyncio.get_running_loop().is_closed()}")
-            except RuntimeError:
-                pass
-            return cls._client
+        if loop_id in cls._clients:
+            return cls._clients[loop_id]
 
-        if cls._lock is None:
-            cls._lock = asyncio.Lock()
+        if loop_id not in cls._locks:
+            cls._locks[loop_id] = asyncio.Lock()
 
-        async with cls._lock:
+        async with cls._locks[loop_id]:
             # 双重检查：锁内再次确认未被其他协程抢先初始化
-            if cls._initialized and cls._client is not None:
-                return cls._client
+            if loop_id in cls._clients:
+                return cls._clients[loop_id]
 
-            cls._pool = cls._create_pool()
-            cls._client = cls._create_client(cls._pool)
-            
-            try:
-                init_loop = id(asyncio.get_running_loop())
-                logger.info(f"[DIAGNOSIS] Client initialized in loop: {init_loop}")
-            except RuntimeError:
-                pass
+            pool = cls._create_pool()
+            client = cls._create_client(pool)
 
             # 验证连接可用性
             try:
-                await cls._client.ping()
+                await client.ping()
             except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
                 logger.error(
                     "Redis 连接验证失败 (PING)",
@@ -152,21 +135,20 @@ class RedisClientManager:
                     error=str(e),
                     exc_info=True,
                 )
-                # 清理失败的状态，允许后续重试
-                cls._pool = None
-                cls._client = None
                 raise
 
-            cls._initialized = True
+            cls._pools[loop_id] = pool
+            cls._clients[loop_id] = client
             logger.info(
                 "Redis 客户端管理器初始化完成",
                 host=settings.redis_host,
                 port=settings.redis_port,
                 db=settings.redis_db,
                 max_connections=settings.redis_max_connections,
+                loop_id=loop_id,
             )
 
-        return cls._client
+        return cls._clients[loop_id]
 
     @classmethod
     async def health_check(cls) -> bool:
@@ -178,12 +160,18 @@ class RedisClientManager:
         Returns:
             ``True`` 如果 Redis 正常响应 PING，否则 ``False``。
         """
-        if cls._client is None:
+        try:
+            loop_id = id(asyncio.get_running_loop())
+        except RuntimeError:
+            return False
+
+        client = cls._clients.get(loop_id)
+        if client is None:
             return False
 
         try:
             result = await asyncio.wait_for(
-                cls._client.ping(),
+                client.ping(),
                 timeout=HEALTH_CHECK_TIMEOUT_SEC,
             )
             return result is True
@@ -196,34 +184,38 @@ class RedisClientManager:
 
     @classmethod
     async def close(cls) -> None:
-        """关闭 Redis 连接池和客户端，释放所有连接资源。
+        """关闭当前事件循环的 Redis 连接池和客户端，释放所有连接资源。
 
         **Why**: 在应用 graceful shutdown 时必须调用，
         否则会导致连接泄漏和进程挂起。应在 FastAPI shutdown 事件中注册。
 
         幂等操作：重复调用不会出错。
         """
-        if cls._lock is None:
-            cls._lock = asyncio.Lock()
+        try:
+            loop_id = id(asyncio.get_running_loop())
+        except RuntimeError:
+            return
+
+        if loop_id not in cls._locks:
+            cls._locks[loop_id] = asyncio.Lock()
             
-        async with cls._lock:
-            if cls._client is not None:
-                try:
-                    await cls._client.aclose()
-                    logger.info("Redis 客户端已关闭")
-                except Exception as e:
-                    logger.warning("关闭 Redis 客户端时出现异常", error=str(e))
+        async with cls._locks[loop_id]:
+            client = cls._clients.pop(loop_id, None)
+            pool = cls._pools.pop(loop_id, None)
 
-            if cls._pool is not None:
+            if client is not None:
                 try:
-                    await cls._pool.disconnect()
-                    logger.info("Redis 连接池已释放")
+                    await client.aclose()
+                    logger.info("Redis 客户端已关闭", loop_id=loop_id)
                 except Exception as e:
-                    logger.warning("释放 Redis 连接池时出现异常", error=str(e))
+                    logger.warning("关闭 Redis 客户端时出现异常", error=str(e), loop_id=loop_id)
 
-            cls._client = None
-            cls._pool = None
-            cls._initialized = False
+            if pool is not None:
+                try:
+                    await pool.disconnect()
+                    logger.info("Redis 连接池已释放", loop_id=loop_id)
+                except Exception as e:
+                    logger.warning("释放 Redis 连接池时出现异常", error=str(e), loop_id=loop_id)
 
     @classmethod
     async def reset(cls) -> None:
