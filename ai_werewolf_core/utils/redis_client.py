@@ -114,11 +114,12 @@ class RedisClientManager:
             current_loop = id(asyncio.get_running_loop())
             logger.info(f"[DIAGNOSIS] get_client called. Current loop: {current_loop}")
         except RuntimeError:
+            current_loop = "None"
             logger.info("[DIAGNOSIS] get_client called. No running loop!")
 
         if cls._initialized and cls._client is not None:
             try:
-                logger.info(f"[DIAGNOSIS] Returning cached client. Is loop closed? {asyncio.get_running_loop().is_closed()}")
+                logger.info(f"[DIAGNOSIS] Returning cached client to loop: {current_loop}. Is loop closed? {asyncio.get_running_loop().is_closed()}")
             except RuntimeError:
                 pass
             return cls._client
@@ -133,6 +134,12 @@ class RedisClientManager:
 
             cls._pool = cls._create_pool()
             cls._client = cls._create_client(cls._pool)
+            
+            try:
+                init_loop = id(asyncio.get_running_loop())
+                logger.info(f"[DIAGNOSIS] Client initialized in loop: {init_loop}")
+            except RuntimeError:
+                pass
 
             # 验证连接可用性
             try:

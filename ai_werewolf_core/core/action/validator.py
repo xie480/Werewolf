@@ -133,14 +133,12 @@ class ActionValidator:
     # ------------------------------------------------------------------
 
     async def _get_redis(self) -> Redis:
-        """获取 Redis 客户端（懒初始化，共享连接池）。
+        """获取 Redis 客户端（共享连接池）。
 
         Returns:
             Redis 异步客户端实例。
         """
-        if self._redis is None:
-            self._redis = await RedisClientManager.get_client()
-        return self._redis
+        return await RedisClientManager.get_client()
 
     # ------------------------------------------------------------------
     # 主校验入口

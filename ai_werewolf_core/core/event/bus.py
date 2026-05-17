@@ -228,7 +228,7 @@ class EventBus:
     # ------------------------------------------------------------------
 
     async def _get_redis(self) -> aioredis.Redis:
-        """获取 Redis 异步客户端（懒初始化，共享连接池）。
+        """获取 Redis 异步客户端（共享连接池）。
 
         Returns:
             共享的 Redis 异步客户端实例。
@@ -236,15 +236,12 @@ class EventBus:
         Raises:
             RedisUnavailableException: Redis 连接池初始化失败。
         """
-        if self._redis_client is None:
-            try:
-                self._redis_client = await RedisClientManager.get_client()
-                logger.debug("EventBus 已获取共享 Redis 客户端")
-            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
-                raise RedisUnavailableException(
-                    "EventBus 无法获取 Redis 客户端"
-                ) from e
-        return self._redis_client
+        try:
+            return await RedisClientManager.get_client()
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            raise RedisUnavailableException(
+                "EventBus 无法获取 Redis 客户端"
+            ) from e
 
     # ------------------------------------------------------------------
     # seq_num 管理

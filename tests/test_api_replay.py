@@ -30,7 +30,7 @@ def mock_player_manager():
 
 @pytest.fixture
 def mock_event_bus():
-    with patch("ai_werewolf_core.api.routes.replay.EventBus") as mock:
+    with patch("ai_werewolf_core.api.routes.replay.event_bus") as mock:
         # Mock events
         events = [
             Event(

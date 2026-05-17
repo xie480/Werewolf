@@ -24,6 +24,13 @@ class OpenAIAdapter(BaseModelAdapter):
         """直接转发完整 Prompt 并返回结构化响应，包含重试机制"""
         messages = [{"role": "user", "content": request.full_prompt}]
         
+        # [DIAGNOSIS LOG] 验证 messages 结构和内容
+        logger.info(
+            "llm_api_request_diagnosis",
+            has_system_msg=any(m["role"] == "system" for m in messages),
+            user_msg_contains_json="json" in messages[0]["content"].lower()
+        )
+        
         for attempt in range(max_retries):
             try:
                 response = await asyncio.wait_for(
@@ -34,7 +41,7 @@ class OpenAIAdapter(BaseModelAdapter):
                         max_tokens=request.max_tokens,
                         response_format={"type": "json_object"}
                     ),
-                    timeout=self.config.get("timeout", 15.0)
+                    timeout=self.config.get("timeout", 60.0)
                 )
                 
                 raw_text = response.choices[0].message.content

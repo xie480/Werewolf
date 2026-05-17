@@ -124,8 +124,8 @@ def run_agent_decision(
                     
         return state
 
-    from ai_werewolf_core.utils.asyncio_utils import run_async
-    final_state = run_async(_run_and_submit())
+    from ai_werewolf_core.utils.asyncio_utils import run_agent_async
+    final_state = run_agent_async(_run_and_submit())
 
     result = {
         "game_id": game_id,
@@ -257,8 +257,8 @@ def task_archive_memory(
             logger.error("archive_memory_task_failed", error=str(e), exc_info=True)
             return {"success": False, "error": str(e)}
             
-    from ai_werewolf_core.utils.asyncio_utils import run_async
-    return run_async(_archive())
+    from ai_werewolf_core.utils.asyncio_utils import run_agent_async
+    return run_agent_async(_archive())
 
 
 @shared_task(name="agents.submit_action", bind=True)

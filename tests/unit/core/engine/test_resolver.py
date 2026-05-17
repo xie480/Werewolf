@@ -137,6 +137,7 @@ class TestIsActionCompleted:
             make_action("player_3", ActionType.WOLF_KILL, "player_2", round_num=1),
             roles, GamePhase.NIGHT_WOLF_ACT,
         )
+        resolver.calculate_wolf_target()
 
         resolver.submit_action(
             make_action("player_1", ActionType.WITCH_SAVE, "player_2",

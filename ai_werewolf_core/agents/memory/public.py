@@ -105,9 +105,33 @@ class PublicMemoryManager:
                 try:
                     round_num = int(round_str)
                     data = json.loads(json_str)
+                    # 防御性检查：确保 data 是 dict 而非其他类型（如 int/str）
+                    if not isinstance(data, dict):
+                        logger.warning(
+                            "compressed_memory_invalid_type",
+                            round_str=round_str,
+                            data_type=type(data).__name__,
+                            data_value=data,
+                        )
+                        # 清理损坏的数据
+                        try:
+                            await redis.hdel(key, round_str)
+                        except Exception:
+                            pass
+                        continue
                     compressed_memories[round_num] = CompressionResponse(**data)
                     max_compressed_round = max(max_compressed_round, round_num)
-                except (ValueError, json.JSONDecodeError):
+                except (ValueError, json.JSONDecodeError) as e:
+                    logger.warning(
+                        "compressed_memory_decode_failed",
+                        round_str=round_str,
+                        error=str(e),
+                    )
+                    # 清理损坏的数据
+                    try:
+                        await redis.hdel(key, round_str)
+                    except Exception:
+                        pass
                     continue
                     
         # 2. 获取未压缩的近期记忆

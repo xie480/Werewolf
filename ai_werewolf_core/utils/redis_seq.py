@@ -302,16 +302,15 @@ class RedisSeqGenerator:
         if self._closed:
             raise RedisUnavailableException("Redis 时序发号器已关闭")
 
-        if self._redis is None:
-            try:
-                self._redis = await RedisClientManager.get_client()
-                logger.debug("Redis 时序发号器已获取共享客户端")
-            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
-                raise RedisUnavailableException(
-                    "无法获取 Redis 客户端：共享连接池初始化失败"
-                ) from e
+        if self._redis is not None:
+            return self._redis
 
-        return self._redis
+        try:
+            return await RedisClientManager.get_client()
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            raise RedisUnavailableException(
+                "无法获取 Redis 客户端：共享连接池初始化失败"
+            ) from e
 
 
 # ============================================================================

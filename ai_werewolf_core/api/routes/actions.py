@@ -11,7 +11,7 @@ Engine 委托，不包含任何游戏逻辑。
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 
@@ -22,6 +22,7 @@ from ai_werewolf_core.core.engine.exceptions import (
 from ai_werewolf_core.core.engine.lifecycle import LifecycleManager
 from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
 from ai_werewolf_core.core.engine.resolver import ActionResolver
+from ai_werewolf_core.core.engine.roles.base import BaseRole
 from ai_werewolf_core.core.engine.vote_manager import VoteManager
 from ai_werewolf_core.core.event.bus import event_bus, EventBus
 from ai_werewolf_core.schemas.api import (
@@ -103,6 +104,21 @@ class InternalSubmitResult:
     reason: str = ""
 
 
+async def _load_roles(game_id: str) -> Dict[str, BaseRole]:
+    """从持久化存储加载角色映射（供内部提交使用）。
+    
+    当 roles={} 被传入 submit_vote 或 submit_action 时，
+    这些方法内部的存活校验需要真实的角色数据。
+    此函数加载角色数据以提供正确的校验上下文。
+    """
+    from ai_werewolf_core.core.engine.game_engine import GameEngine
+    try:
+        return await GameEngine.load_roles_from_persistence(game_id)
+    except Exception as e:
+        logger.error("load_roles_failed", game_id=game_id, error=str(e))
+        return {}
+
+
 async def submit_action_internal(game_id: str, action: AgentAction) -> InternalSubmitResult:
     """
     内部提交动作接口，供 Agent 任务调用。
@@ -125,14 +141,17 @@ async def submit_action_internal(game_id: str, action: AgentAction) -> InternalS
         # 获取当前游戏阶段
         current_phase = await _get_current_phase(game_id, event_bus)
         
+        # 加载角色映射用于校验（不再传入空字典 roles={}）
+        roles = await _load_roles(game_id)
+        
         if action.action_type == ActionType.VOTE:
             # 验证当前阶段是否允许投票
             if current_phase not in (GamePhase.DAY_VOTE, GamePhase.DAY_PK_VOTE):
                 return InternalSubmitResult(False, f"当前阶段 [{current_phase.value}] 不允许投票")
-            # 提交投票动作
+            # 提交投票动作（传入正确的 roles 映射）
             vote_mgr = VoteManager(game_id, event_bus)
             vote_mgr.begin_vote(action.round)
-            await vote_mgr.submit_vote(action, roles={}, current_phase=current_phase)
+            await vote_mgr.submit_vote(action, roles=roles, current_phase=current_phase)
             return InternalSubmitResult(True, "投票提交成功")
             
         elif action.action_type == ActionType.SPEAK:
@@ -162,14 +181,14 @@ async def submit_action_internal(game_id: str, action: AgentAction) -> InternalS
             return InternalSubmitResult(True, "发言提交成功")
             
         else:
-            # 处理夜间技能动作
+            # 处理夜间技能动作（传入正确的 roles 映射）
             resolver = ActionResolver(game_id, event_bus)
-            await resolver.submit_action(action, roles={}, current_phase=current_phase)
+            await resolver.submit_action(action, roles=roles, current_phase=current_phase)
             
             # 检查是否满足提前结束条件
             from ai_werewolf_core.core.engine.game_engine import GameEngine
-            roles = await GameEngine.load_roles_from_persistence(game_id)
-            engine = GameEngine(game_id, event_bus, roles)
+            reloaded_roles = await GameEngine.load_roles_from_persistence(game_id)
+            engine = GameEngine(game_id, event_bus, reloaded_roles)
             try:
                 await engine._check_early_termination(current_phase)
             except Exception as e:

@@ -170,7 +170,7 @@ class VoteManager:
     # ------------------------------------------------------------------
 
     async def _get_redis(self) -> aioredis.Redis:
-        """获取 Redis 异步客户端（懒初始化，共享连接池）。
+        """获取 Redis 异步客户端（共享连接池）。
 
         Returns:
             共享的 Redis 异步客户端实例。
@@ -178,15 +178,12 @@ class VoteManager:
         Raises:
             RedisUnavailableException: Redis 连接池初始化失败。
         """
-        if self._redis is None:
-            try:
-                self._redis = await RedisClientManager.get_client()
-                self._logger.debug("VoteManager 已获取共享 Redis 客户端")
-            except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
-                raise RedisUnavailableException(
-                    f"VoteManager 无法获取 Redis 客户端: game_id={self.game_id}"
-                ) from e
-        return self._redis
+        try:
+            return await RedisClientManager.get_client()
+        except (aioredis.ConnectionError, aioredis.TimeoutError) as e:
+            raise RedisUnavailableException(
+                f"VoteManager 无法获取 Redis 客户端: game_id={self.game_id}"
+            ) from e
 
     # ------------------------------------------------------------------
     # Key 构建
