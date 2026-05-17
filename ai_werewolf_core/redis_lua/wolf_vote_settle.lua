@@ -43,6 +43,29 @@ for i = 1, #all_fields, 2 do
     end
 end
 
--- 打平到 JSON 字符串返回
-local cjson = require 'cjson'
-return {'OK', cjson.encode(votes), cjson.encode(vote_details)}
+-- 手动 JSON 序列化（避免使用 require 'cjson'，因为 strict_lua 模式禁止访问全局变量 require）
+-- 适用于扁平 key-value 结构的 JSON 对象
+
+-- 对 JSON 字符串值中的特殊字符进行转义
+local function json_escape(s)
+    s = string.gsub(s, '\\', '\\\\')
+    s = string.gsub(s, '"', '\\"')
+    return s
+end
+
+-- 将 Lua 表编码为 JSON 对象字符串
+-- value_is_number: true 表示值为数字，false 表示值为字符串（需加引号）
+local function encode_object(t, value_is_number)
+    local parts = {}
+    for k, v in pairs(t) do
+        local key_str = '"' .. json_escape(k) .. '":'
+        if value_is_number then
+            parts[#parts + 1] = key_str .. tostring(v)
+        else
+            parts[#parts + 1] = key_str .. '"' .. json_escape(v) .. '"'
+        end
+    end
+    return '{' .. table.concat(parts, ',') .. '}'
+end
+
+return {'OK', encode_object(votes, true), encode_object(vote_details, false)}
