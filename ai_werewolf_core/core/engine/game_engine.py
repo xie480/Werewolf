@@ -272,6 +272,10 @@ class GameEngine:
 
         mgr = PlayerStatusManager()
         players = await mgr.get_all_players(game_id)
+        
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("DIAGNOSIS_LOG: load_roles_from_persistence got players=%s for game_id=%s", players, game_id)
 
         roles: dict[str, BaseRole] = {}
         for pid, info in players.items():

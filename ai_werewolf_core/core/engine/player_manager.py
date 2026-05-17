@@ -707,6 +707,7 @@ class PlayerStatusManager:
             redis = await self._get_redis()
             raw = await redis.hgetall(info_key)
             if not raw:
+                logger.warning("DIAGNOSIS_LOG: get_all_players Redis HGETALL returned empty for game_id=%s. Returning {} without DB fallback.", game_id)
                 return {}
             return {
                 player_id: json.loads(info_str)
