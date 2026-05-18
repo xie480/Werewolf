@@ -551,6 +551,9 @@ function clearInnerThoughts(): void {
 
       case EventType.PLAYER_DEATH:
         {
+          if (event.payload.is_pending) {
+            break
+          }
           const deadId = (event.payload.dead_player_id ?? event.payload.player_id) as string | undefined
           if (deadId) {
             const player = players.value.find(p => p.player_id === deadId)

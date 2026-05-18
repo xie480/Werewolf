@@ -112,6 +112,9 @@ export const useReplayStore = defineStore('replay', () => {
         case 'PLAYER_DEATH_EVENT':
         case 'VOTED_OUT_EVENT':
         case 'PLAYER_DEATH':
+          if (event.payload.is_pending) {
+            break
+          }
           const deadId = event.payload.player_id as string || event.payload.target_id as string || event.payload.dead_player_id as string
           if (deadId && state.players[deadId]) {
             state.players[deadId].is_alive = false

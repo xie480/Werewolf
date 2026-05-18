@@ -247,7 +247,7 @@ async def reasoning_node(state: AgentState) -> Dict[str, Any]:
             import asyncio
             private_mgr = PrivateMemoryManager()
             asyncio.create_task(
-                private_mgr.save_reasoning(game_id, player_id, current_round, parsed_data.internal_monologue)
+                private_mgr.save_reasoning(game_id, player_id, current_round, current_phase.value, parsed_data.internal_monologue)
             )
             if parsed_data.suspect_list:
                 asyncio.create_task(

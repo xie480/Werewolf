@@ -516,6 +516,62 @@ class GameEngine:
         # 立即推进阶段
         await self.advance_phase()
 
+    async def _notify_seer_check_result(self, round_num: int) -> None:
+        """
+        【新增】向预言家推送查验结果（系统私有反馈）。
+        在 NIGHT_SEER_ACT 阶段结束时调用。
+        """
+        from ai_werewolf_core.schemas.enums import Role, GamePhase, Faction, ActionType
+        from ai_werewolf_core.schemas.models import PrivateEventLog
+        from ai_werewolf_core.agents.memory.private import PrivateMemoryManager
+        from ai_werewolf_core.utils.snowflake import get_snowflake
+
+        # 1. 查找预言家的查验动作
+        seer_actions = [
+            a for a in self.resolver.pending_actions
+            if a.action_type == ActionType.SEER_CHECK
+        ]
+        
+        if not seer_actions:
+            return
+            
+        memory_mgr = PrivateMemoryManager()
+        
+        for action in seer_actions:
+            seer_id = action.actor_id
+            target_id = action.target_id
+            
+            if not target_id:
+                continue
+                
+            target_role = self.roles.get(target_id)
+            if not target_role:
+                continue
+                
+            # 2. 判断阵营
+            is_wolf = target_role.faction == Faction.WEREWOLF
+            faction_str = "狼人" if is_wolf else "好人"
+            
+            description = f"系统提示：你今晚查验的玩家 [{target_id}] 的身份是【{faction_str}】。"
+            
+            log = PrivateEventLog(
+                seq_num=get_snowflake().next_id(),
+                round_num=round_num,
+                phase=GamePhase.NIGHT_SEER_ACT,
+                description=description
+            )
+            
+            # 3. 写入预言家的私有记忆
+            await memory_mgr.append_system_feedback(self.game_id, seer_id, log)
+            
+            self._logger.info(
+                "seer_notified_of_check_result",
+                seer_id=seer_id,
+                target_id=target_id,
+                is_wolf=is_wolf,
+                round=round_num
+            )
+
     async def _notify_witch_wolf_target(self, round_num: int) -> None:
         """
         【新增】向存活的女巫推送狼人刀口信息（系统私有反馈）。
@@ -674,6 +730,9 @@ class GameEngine:
                         "wolf_kill_target_set",
                         target_id=target_id,
                     )
+
+        elif old_phase == GamePhase.NIGHT_SEER_ACT:
+            await self._notify_seer_check_result(round_num)
 
         elif old_phase in VOTE_PHASES:
             vote_result = await self.vote_manager.resolve_vote(

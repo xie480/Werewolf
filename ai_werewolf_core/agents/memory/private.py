@@ -105,7 +105,7 @@ class PrivateMemoryManager:
         except Exception as e:
             logger.error("追加系统反馈失败", game_id=game_id, player_id=player_id, error=str(e))
 
-    async def save_reasoning(self, game_id: str, player_id: str, round_num: int, reasoning: str) -> None:
+    async def save_reasoning(self, game_id: str, player_id: str, round_num: int, phase: str, reasoning: str) -> None:
         """
         保存 Agent 的内心 OS，用于后续回合的连贯性。
         
@@ -113,14 +113,15 @@ class PrivateMemoryManager:
             game_id: 对局 ID
             player_id: 玩家 ID
             round_num: 轮次编号
+            phase: 当前阶段
             reasoning: 推理内容
         """
         reasoning_key = RedisKeys.private_memory_reasoning(game_id, player_id)
         redis = await RedisClientManager.get_client()
         
-        data = json.dumps({"round_num": round_num, "content": reasoning})
+        data = json.dumps({"round_num": round_num, "phase": phase, "content": reasoning})
         await redis.rpush(reasoning_key, data)
-        logger.debug("内心OS已保存", game_id=game_id, player_id=player_id, round_num=round_num)
+        logger.debug("内心OS已保存", game_id=game_id, player_id=player_id, round_num=round_num, phase=phase)
         
     async def get_private_round_data(self, game_id: str, player_id: str) -> dict[int, dict]:
         """
@@ -160,6 +161,8 @@ class PrivateMemoryManager:
                 if isinstance(data, dict) and "round_num" in data and "content" in data:
                     r_num = data["round_num"]
                     content = data["content"]
+                    if "phase" in data:
+                        content = f"[{data['phase']}] {content}"
                 else:
                     r_num = 1
                     content = r_str
