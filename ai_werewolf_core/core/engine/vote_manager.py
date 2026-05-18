@@ -551,6 +551,9 @@ class VoteManager:
             ActionValidationError: 如果被放逐的目标角色不存在。
             RedisUnavailableException: Redis 不可用，无法拉取选票。
         """
+        if current_round > 0:
+            self._current_round = current_round
+            
         self._logger.info(
             "vote_resolve_start",
             round=self._current_round,

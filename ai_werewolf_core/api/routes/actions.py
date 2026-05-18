@@ -165,6 +165,23 @@ async def submit_action_internal(game_id: str, action: AgentAction) -> InternalS
             await speech_mgr.submit_speech(action, roles=roles, current_phase=current_phase)
             return InternalSubmitResult(True, "发言提交成功")
             
+        elif current_phase == GamePhase.NIGHT_WOLF_ACT:
+            from ai_werewolf_core.core.engine.wolf_vote_manager import WolfVoteManager
+            wolf_vote_mgr = WolfVoteManager(game_id, event_bus)
+            wolf_vote_mgr._current_round = action.round
+            await wolf_vote_mgr.submit_vote(action, roles=roles, current_phase=current_phase)
+            
+            # 检查是否满足提前结束条件
+            from ai_werewolf_core.core.engine.game_engine import GameEngine
+            reloaded_roles = await GameEngine.load_roles_from_persistence(game_id)
+            engine = GameEngine(game_id, event_bus, reloaded_roles)
+            try:
+                await engine._check_early_termination(current_phase)
+            except Exception as e:
+                logger.warning("early_termination_check_failed", phase=current_phase.value, error=str(e))
+                
+            return InternalSubmitResult(True, "狼人行动提交成功")
+            
         else:
             # 处理夜间技能动作（传入正确的 roles 映射）
             resolver = ActionResolver(game_id, event_bus)
@@ -435,9 +452,17 @@ async def submit_action(game_id: str, request: SubmitActionRequest) -> ActionRes
             reason="API 技能提交",
         )
 
-        # 委托 ActionResolver 校验并暂存
-        resolver = ActionResolver(game_id, event_bus)
-        resolver.submit_action(action, roles={}, current_phase=current_phase)
+        # 加载角色映射用于校验
+        roles = await _load_roles(game_id)
+
+        # 委托对应的 Manager 校验并暂存
+        if current_phase == GamePhase.NIGHT_WOLF_ACT:
+            from ai_werewolf_core.core.engine.wolf_vote_manager import WolfVoteManager
+            wolf_vote_mgr = WolfVoteManager(game_id, event_bus)
+            await wolf_vote_mgr.submit_vote(action, roles=roles, current_phase=current_phase)
+        else:
+            resolver = ActionResolver(game_id, event_bus)
+            resolver.submit_action(action, roles=roles, current_phase=current_phase)
 
         logger.info(
             "night_action_submitted",

@@ -433,9 +433,11 @@ class WolfVoteManager:
         timestamp = now_tz().isoformat()
 
         try:
+            vote_key = self._vote_key()
+            self._logger.warning(f"DIAGNOSIS_LOG: submit_vote using key={vote_key}, current_round={self._current_round}, action.round={action.round}")
             result = await LuaScriptManager.evalsha(
                 "wolf_vote_submit",
-                keys=[self._vote_key()],
+                keys=[vote_key],
                 args=[voter_id, target_value, str(WOLF_VOTE_TTL_SEC), timestamp],
             )
             status = result[0]
@@ -584,7 +586,12 @@ class WolfVoteManager:
         Raises:
             RedisUnavailableException: Redis 不可用。
         """
+        if current_round > 0:
+            self._current_round = current_round
+            
         timestamp = now_tz().isoformat()
+        vote_key = self._vote_key()
+        self._logger.warning(f"DIAGNOSIS_LOG: resolve_vote using key={vote_key}, current_round={self._current_round}, passed_current_round={current_round}")
         self._logger.info(
             "wolf_vote_resolve_start",
             round=self._current_round,
@@ -594,7 +601,7 @@ class WolfVoteManager:
         try:
             settle_result = await LuaScriptManager.evalsha(
                 "wolf_vote_settle",
-                keys=[self._vote_key()],
+                keys=[vote_key],
                 args=[str(WOLF_VOTE_TTL_SEC), timestamp],
             )
             settle_status = settle_result[0]
