@@ -541,7 +541,8 @@ function clearInnerThoughts(): void {
         break
 
       case EventType.SYSTEM_ANNOUNCEMENT:
-        announcement.value = (event.payload.announcement ?? event.payload.content) as string ?? null
+        // 尝试读取 message（天亮播报）/ announcement（猎人开枪）/ content（其他）三种字段
+        announcement.value = (event.payload.message ?? event.payload.announcement ?? event.payload.content) as string ?? null
         // 3 秒后自动清除
         if (announcement.value) {
           setTimeout(() => { announcement.value = null }, 3_000)
@@ -667,7 +668,8 @@ function clearInnerThoughts(): void {
         base.inner_thought = event.payload.inner_thought as string | undefined
         break
       case EventType.SYSTEM_ANNOUNCEMENT:
-        base.announcement = (event.payload.announcement ?? event.payload.content) as string
+        // 兼容三种 payload 字段：message（天亮播报）、announcement（猎人开枪）、content（旧版）
+        base.announcement = (event.payload.message ?? event.payload.announcement ?? event.payload.content) as string
         break
       case EventType.PLAYER_DEATH:
         base.dead_player_id = (event.payload.dead_player_id ?? event.payload.player_id) as string

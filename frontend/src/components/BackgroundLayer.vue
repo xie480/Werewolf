@@ -32,7 +32,7 @@ const backgroundStyle = computed(() => {
     }
   }
 
-  if (phase.startsWith('DAY_')) {
+  if (phase.startsWith('DAY_') || phase === 'HUNTER_SHOOT') {
     return {
       backgroundImage: 'url(/background-day.png)',
       backgroundColor: '#1a1a2e',
@@ -56,7 +56,7 @@ const overlayStyle = computed(() => {
     return { opacity: 0.6, backgroundColor: 'rgba(0,0,0,0.6)' }
   }
 
-  if (phase.startsWith('DAY_')) {
+  if (phase.startsWith('DAY_') || phase === 'HUNTER_SHOOT') {
     // 白天：微弱暖光
     return { opacity: 0.15, backgroundColor: 'rgba(255,200,100,0.1)' }
   }

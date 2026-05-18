@@ -564,6 +564,43 @@ class GameEngine:
                 round=round_num
             )
 
+    async def _announce_day_start(self, round_num: int, deaths: list[str]) -> None:
+        """
+        【新增】天亮播报（系统公告）。
+        在进入 DAY_START 阶段时调用，告知昨晚死讯或平安夜。
+        """
+        from ai_werewolf_core.schemas.enums import EventType, Visibility, GamePhase
+        from ai_werewolf_core.schemas.models import Event
+        from ai_werewolf_core.utils.snowflake import get_snowflake
+        from ai_werewolf_core.utils.time_utils import now_tz
+
+        if not deaths:
+            message = "系统提示：天亮了，昨晚是平安夜。"
+        else:
+            deaths_str = "、".join(deaths)
+            message = f"系统提示：天亮了，昨晚死亡的玩家是 [{deaths_str}]。"
+
+        event = Event(
+            event_id=get_snowflake().next_id(),
+            game_id=self.game_id,
+            seq_num=0,
+            event_type=EventType.SYSTEM_ANNOUNCEMENT,
+            visibility=Visibility.PUBLIC,
+            target_agents=[],
+            timestamp=now_tz(),
+            payload={
+                "message": message,
+                "round": round_num,
+                "phase": GamePhase.DAY_START.value,
+            },
+        )
+        await self.event_bus.publish(event)
+        self._logger.info(
+            "day_start_announced",
+            round=round_num,
+            deaths=deaths,
+        )
+
     # ==================================================================
     # 公开接口: 阶段推进（Engine 内部自驱 or 外部触发）
     # ==================================================================
@@ -671,6 +708,10 @@ class GameEngine:
         # 进入发言阶段时，初始化发言队列（按座位号升序）
         if next_phase in SPEECH_PHASES:
             await self.speech_manager.init_queue(self.roles, round_num, next_phase)
+
+        # 【新增】进入天亮阶段时，播报昨夜死讯或平安夜
+        if next_phase == GamePhase.DAY_START:
+            await self._announce_day_start(round_num, deaths)
 
         await self.lifecycle.advance_phase(next_phase)
 
