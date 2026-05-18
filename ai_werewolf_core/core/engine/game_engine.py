@@ -516,6 +516,54 @@ class GameEngine:
         # 立即推进阶段
         await self.advance_phase()
 
+    async def _notify_witch_wolf_target(self, round_num: int) -> None:
+        """
+        【新增】向存活的女巫推送狼人刀口信息（系统私有反馈）。
+        在进入 NIGHT_WITCH_ACT 阶段时调用。
+        """
+        from ai_werewolf_core.schemas.enums import Role, GamePhase
+        from ai_werewolf_core.schemas.models import PrivateEventLog
+        from ai_werewolf_core.agents.memory.private import PrivateMemoryManager
+        from ai_werewolf_core.utils.snowflake import get_snowflake
+        
+        # 1. 获取当前夜晚狼人的刀人目标
+        wolf_target = self.resolver.get_wolf_target()
+        
+        # 2. 查找当前存活的女巫玩家
+        witch_ids = [
+            pid for pid, role in self.roles.items()
+            if role.role_type == Role.WITCH and role.is_alive
+        ]
+        
+        if not witch_ids:
+            return  # 如果女巫已死或不存在，则无需推送
+            
+        # 3. 构造提示信息（条件分支判定）
+        if wolf_target:
+            description = f"系统提示：今晚狼人袭击的玩家是 [{wolf_target}]。"
+        else:
+            description = "系统提示：今晚是平安夜，狼人没有袭击任何玩家（或空刀）。"
+            
+        # 4. 写入女巫的私有记忆
+        memory_mgr = PrivateMemoryManager()
+        
+        for witch_id in witch_ids:
+            log = PrivateEventLog(
+                seq_num=get_snowflake().next_id(),
+                round_num=round_num,
+                phase=GamePhase.NIGHT_WITCH_ACT,
+                description=description
+            )
+            # 追加到女巫的私有反馈流中
+            await memory_mgr.append_system_feedback(self.game_id, witch_id, log)
+            
+            self._logger.info(
+                "witch_notified_of_wolf_target",
+                witch_id=witch_id,
+                wolf_target=wolf_target,
+                round=round_num
+            )
+
     # ==================================================================
     # 公开接口: 阶段推进（Engine 内部自驱 or 外部触发）
     # ==================================================================
@@ -615,6 +663,10 @@ class GameEngine:
         # 进入狼人行动阶段时，初始化狼人投票回合
         if next_phase == GamePhase.NIGHT_WOLF_ACT:
             await self.wolf_vote_manager.begin_vote(round_num)
+
+        # 进入女巫行动阶段时，向女巫推送昨夜刀口信息
+        if next_phase == GamePhase.NIGHT_WITCH_ACT:
+            await self._notify_witch_wolf_target(round_num)
 
         # 进入发言阶段时，初始化发言队列（按座位号升序）
         if next_phase in SPEECH_PHASES:
