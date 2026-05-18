@@ -45,7 +45,7 @@ def sample_snapshot():
 
 @pytest.mark.asyncio
 async def test_build_prompt_werewolf(prompt_builder, sample_snapshot):
-    prompt = await prompt_builder.build_prompt(sample_snapshot)
+    prompt = await prompt_builder.build_prompt(sample_snapshot, current_phase=GamePhase.DAY_START.value)
     
     # 验证系统层
     assert "你的玩家ID是：player_1" in prompt
@@ -72,7 +72,7 @@ async def test_build_prompt_seer(prompt_builder, sample_snapshot):
     sample_snapshot.private_state.faction = Faction.VILLAGER
     sample_snapshot.private_state.teammates = []
     
-    prompt = await prompt_builder.build_prompt(sample_snapshot)
+    prompt = await prompt_builder.build_prompt(sample_snapshot, current_phase=GamePhase.DAY_START.value)
     
     assert "你的底牌是：预言家" in prompt
     assert "带领你的阵营（VILLAGER）获得最终胜利" in prompt
@@ -84,7 +84,7 @@ async def test_build_prompt_witch(prompt_builder, sample_snapshot):
     sample_snapshot.private_state.teammates = []
     sample_snapshot.private_state.skill_status = {"has_antidote": True, "has_poison": True}
     
-    prompt = await prompt_builder.build_prompt(sample_snapshot)
+    prompt = await prompt_builder.build_prompt(sample_snapshot, current_phase=GamePhase.DAY_START.value)
     
     assert "你的底牌是：女巫" in prompt
     assert "{'has_antidote': True, 'has_poison': True}" in prompt
@@ -95,7 +95,7 @@ async def test_build_prompt_villager(prompt_builder, sample_snapshot):
     sample_snapshot.private_state.faction = Faction.VILLAGER
     sample_snapshot.private_state.teammates = []
     
-    prompt = await prompt_builder.build_prompt(sample_snapshot)
+    prompt = await prompt_builder.build_prompt(sample_snapshot, current_phase=GamePhase.DAY_START.value)
     
     assert "你的底牌是：村民" in prompt
 
@@ -105,13 +105,13 @@ async def test_build_prompt_hunter(prompt_builder, sample_snapshot):
     sample_snapshot.private_state.faction = Faction.VILLAGER
     sample_snapshot.private_state.teammates = []
     
-    prompt = await prompt_builder.build_prompt(sample_snapshot)
+    prompt = await prompt_builder.build_prompt(sample_snapshot, current_phase=GamePhase.DAY_START.value)
     
     assert "你的底牌是：猎人" in prompt
 
 @pytest.mark.asyncio
 async def test_build_prompt_empty_timeline(prompt_builder, sample_snapshot):
     sample_snapshot.history = []
-    prompt = await prompt_builder.build_prompt(sample_snapshot)
+    prompt = await prompt_builder.build_prompt(sample_snapshot, current_phase=GamePhase.INIT.value)
     
     assert "当前游戏阶段（INIT）" in prompt

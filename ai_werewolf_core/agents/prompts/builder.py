@@ -81,22 +81,34 @@ class PromptBuilder:
         from ai_werewolf_core.schemas.enums import GamePhase, ActionType
 
         can_speak = False
+        # 默认动作
         allowed_actions = [ActionType.PASS.value]
 
+        # 发言阶段
         if current_phase in (GamePhase.DAY_DISCUSSION.value, GamePhase.DAY_PK_DISCUSSION.value, GamePhase.LAST_WORDS.value):
             can_speak = True
-            allowed_actions = [ActionType.SPEAK.value]
+            allowed_actions = [ActionType.SPEAK.value, ActionType.PASS.value]
+        
+        # 投票阶段
         elif current_phase in (GamePhase.DAY_VOTE.value, GamePhase.DAY_PK_VOTE.value):
-            allowed_actions = [ActionType.VOTE.value]
+            allowed_actions = [ActionType.VOTE.value, ActionType.PASS.value]
+
+        # 狼人行动阶段
         elif current_phase == GamePhase.NIGHT_WOLF_ACT.value:
             if role == Role.WEREWOLF:
                 allowed_actions = [ActionType.WOLF_KILL.value, ActionType.PASS.value]
+
+        # 女巫行动阶段
         elif current_phase == GamePhase.NIGHT_WITCH_ACT.value:
             if role == Role.WITCH:
                 allowed_actions = [ActionType.WITCH_SAVE.value, ActionType.WITCH_POISON.value, ActionType.PASS.value]
+
+        # 预言家行动阶段
         elif current_phase == GamePhase.NIGHT_SEER_ACT.value:
             if role == Role.SEER:
                 allowed_actions = [ActionType.SEER_CHECK.value, ActionType.PASS.value]
+
+        # 猎人行动阶段
         elif current_phase == GamePhase.HUNTER_SHOOT.value:
             if role == Role.HUNTER:
                 allowed_actions = [ActionType.HUNTER_SHOOT.value, ActionType.PASS.value]
@@ -107,24 +119,23 @@ class PromptBuilder:
         """
         注入 Prompt 输出格式。
         """
-        from ai_werewolf_core.schemas.enums import ActionType
+        from ai_werewolf_core.schemas.enums import GamePhase, ActionType
         
-        if can_speak and ActionType.SPEAK.value in allowed_actions:
+        if current_phase in (GamePhase.DAY_DISCUSSION.value, GamePhase.DAY_PK_DISCUSSION.value, GamePhase.LAST_WORDS.value):
             template_name = "formats/speak_format.j2"
-        elif ActionType.VOTE.value in allowed_actions:
+        elif current_phase in (GamePhase.DAY_VOTE.value, GamePhase.DAY_PK_VOTE.value):
             template_name = "formats/vote_format.j2"
-        elif ActionType.WOLF_KILL.value in allowed_actions:
+        elif current_phase == GamePhase.NIGHT_WOLF_ACT.value and role == Role.WEREWOLF:
             template_name = "formats/wolf_kill_format.j2"
-        elif ActionType.SEER_CHECK.value in allowed_actions:
+        elif current_phase == GamePhase.NIGHT_SEER_ACT.value and role == Role.SEER:
             template_name = "formats/seer_check_format.j2"
-        elif ActionType.WITCH_SAVE.value in allowed_actions or ActionType.WITCH_POISON.value in allowed_actions:
+        elif current_phase == GamePhase.NIGHT_WITCH_ACT.value and role == Role.WITCH:
             template_name = "formats/witch_act_format.j2"
-        elif ActionType.HUNTER_SHOOT.value in allowed_actions:
+        elif current_phase == GamePhase.HUNTER_SHOOT.value and role == Role.HUNTER:
             template_name = "formats/hunter_shoot_format.j2"
         else:
             template_name = "formats/pass_format.j2"
             
-        from ai_werewolf_core.schemas.enums import ActionType
         template = self.env.get_template(template_name)
         return template.render(
             faction=faction,
