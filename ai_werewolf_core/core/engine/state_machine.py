@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
 from typing import Optional
 
 import redis.asyncio as aioredis
@@ -36,6 +35,7 @@ from ai_werewolf_core.utils.logger import bind_game_context, get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
 from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
 from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
+from ai_werewolf_core.utils.snowflake import get_snowflake
 from ai_werewolf_core.utils.time_utils import now_tz
 
 logger = get_logger(__name__)
@@ -470,7 +470,7 @@ class PhaseStateMachine:
         }
 
         event = Event(
-            event_id=str(uuid.uuid4()),
+            event_id=get_snowflake().next_id(),
             game_id=self.game_id,
             seq_num=0,  # EventBus 自动分配
             event_type=EventType.PHASE_TRANSITION_EVENT,

@@ -22,7 +22,7 @@
 
 from __future__ import annotations
 
-import uuid
+from ai_werewolf_core.utils.snowflake import get_snowflake
 from typing import Dict, Optional
 
 from ai_werewolf_core.core.event.bus import EventBus
@@ -280,7 +280,7 @@ class SpecialActionResolver:
 
         # ── 发布死亡事件 ──
         death_event = Event(
-            event_id=str(uuid.uuid4()),
+            event_id=get_snowflake().next_id(),
             game_id=self.game_id,
             seq_num=0,  # EventBus 自动分配
             event_type=EventType.PLAYER_DEATH,
@@ -300,7 +300,7 @@ class SpecialActionResolver:
 
         # ── 发布技能使用事件 ──
         skill_event = Event(
-            event_id=str(uuid.uuid4()),
+            event_id=get_snowflake().next_id(),
             game_id=self.game_id,
             seq_num=0,
             event_type=EventType.SYSTEM_ANNOUNCEMENT,

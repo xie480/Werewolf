@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 from collections import defaultdict
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -41,6 +40,7 @@ from ai_werewolf_core.schemas.models import AgentAction, Event
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
 from ai_werewolf_core.utils.time_utils import now_tz
+from ai_werewolf_core.utils.snowflake import get_snowflake
 
 logger = get_logger(__name__)
 
@@ -240,7 +240,7 @@ class ActionResolver:
 
         # ── 发布私密行动事件（用于前端透视和上帝视角展示） ──
         event = Event(
-            event_id=str(uuid.uuid4()),
+            event_id=get_snowflake().next_id(),
             game_id=self.game_id,
             seq_num=0,
             event_type=EventType.PRIVATE_RESOLUTION_EVENT,
@@ -560,7 +560,7 @@ class ActionResolver:
             faction_value = role.faction.value if role else "UNKNOWN"
 
             event = Event(
-                event_id=str(uuid.uuid4()),
+                event_id=get_snowflake().next_id(),
                 game_id=self.game_id,
                 seq_num=0,  # EventBus 自动分配
                 event_type=EventType.PLAYER_DEATH,

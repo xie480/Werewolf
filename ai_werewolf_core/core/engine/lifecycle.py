@@ -20,7 +20,7 @@ Game Engine 生命周期管理器 (Lifecycle Manager) 模块 —— Write-Throug
 from __future__ import annotations
 
 import json
-import uuid
+from ai_werewolf_core.utils.snowflake import get_snowflake
 from typing import Optional
 
 import redis.asyncio as aioredis
@@ -37,6 +37,7 @@ from ai_werewolf_core.core.engine.exceptions import (
 from ai_werewolf_core.core.engine.state_machine import PhaseStateMachine
 from ai_werewolf_core.core.event.bus import EventBus
 from ai_werewolf_core.db.models import GameRecord
+from ai_werewolf_core.utils.snowflake import get_snowflake
 from ai_werewolf_core.db.session import async_session_factory
 from ai_werewolf_core.schemas.enums import (
     EventType,
@@ -312,7 +313,7 @@ class LifecycleManager:
             payload.update(extra)
 
         event = Event(
-            event_id=str(uuid.uuid4()),
+            event_id=get_snowflake().next_id(),
             game_id=self.game_id,
             seq_num=0,  # EventBus 自动分配
             event_type=EventType.SYSTEM_ANNOUNCEMENT,
@@ -560,7 +561,7 @@ class LifecycleManager:
 
         # Step 3: 发布 GAME_OVER 事件
         game_over_event = Event(
-            event_id=str(uuid.uuid4()),
+            event_id=get_snowflake().next_id(),
             game_id=self.game_id,
             seq_num=0,
             event_type=EventType.GAME_OVER_EVENT,

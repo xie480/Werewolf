@@ -10,7 +10,6 @@ Engine 委托，不包含任何游戏逻辑。
 
 from __future__ import annotations
 
-import uuid
 from typing import Dict, Optional
 
 from fastapi import APIRouter, HTTPException

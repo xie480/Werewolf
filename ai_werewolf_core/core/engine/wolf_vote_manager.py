@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
 from collections import Counter
 from typing import Dict, List, Optional, Set
 
@@ -60,6 +59,7 @@ from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
 from ai_werewolf_core.utils.redis_lua_loader import LuaScriptManager
 from ai_werewolf_core.utils.redis_seq import RedisUnavailableException
+from ai_werewolf_core.utils.snowflake import get_snowflake
 from ai_werewolf_core.utils.time_utils import now_tz
 
 logger = get_logger(__name__)
@@ -478,7 +478,7 @@ class WolfVoteManager:
 
         # ── 发布私密行动事件（用于前端透视和上帝视角展示） ──
         event = Event(
-            event_id=str(uuid.uuid4()),
+            event_id=get_snowflake().next_id(),
             game_id=self.game_id,
             seq_num=0,
             event_type=EventType.PRIVATE_RESOLUTION_EVENT,
@@ -759,7 +759,7 @@ class WolfVoteManager:
         # 发布狼人刀人事件（用于前端展示和审计）
         # 注意：此处不实际修改 is_alive，真正的死亡结算在 NIGHT_RESOLVE 执行
         kill_event = Event(
-            event_id=str(uuid.uuid4()),
+            event_id=get_snowflake().next_id(),
             game_id=self.game_id,
             seq_num=0,
             event_type=EventType.PLAYER_DEATH,
@@ -798,7 +798,7 @@ class WolfVoteManager:
             total_voters: 总投票人数。
         """
         event = Event(
-            event_id=str(uuid.uuid4()),
+            event_id=get_snowflake().next_id(),
             game_id=self.game_id,
             seq_num=0,
             event_type=EventType.VOTE_EVENT,

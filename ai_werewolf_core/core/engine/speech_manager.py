@@ -28,7 +28,7 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
+# Removed uuid import; using Snowflake IDs
 from typing import Dict, List, Optional
 
 import redis.asyncio as aioredis
@@ -47,6 +47,7 @@ from ai_werewolf_core.schemas.enums import (
 from ai_werewolf_core.schemas.models import AgentAction, Event
 from ai_werewolf_core.utils.logger import get_logger
 from ai_werewolf_core.utils.redis_client import RedisClientManager
+from ai_werewolf_core.utils.snowflake import get_snowflake
 from ai_werewolf_core.utils.time_utils import now_tz
 
 logger = get_logger(__name__)
@@ -274,7 +275,7 @@ class SpeechManager:
         # ── 发布 SPEECH_EVENT ──
         speech_content = action.speech_content or action.reason or ""
         speech_event = Event(
-            event_id=str(uuid.uuid4()),
+            event_id=get_snowflake().next_id(),
             game_id=self.game_id,
             seq_num=0,  # EventBus 自动分配
             event_type=EventType.SPEECH_EVENT,
@@ -295,7 +296,7 @@ class SpeechManager:
         # 同时发布私密事件记录内心OS
         if action.inner_thought:
             inner_thought_event = Event(
-                event_id=str(uuid.uuid4()),
+                event_id=get_snowflake().next_id(),
                 game_id=self.game_id,
                 seq_num=0,
                 event_type=EventType.PRIVATE_RESOLUTION_EVENT,
@@ -443,7 +444,7 @@ class SpeechManager:
             phase: 当前发言阶段。
         """
         turn_event = Event(
-            event_id=str(uuid.uuid4()),
+            event_id=get_snowflake().next_id(),
             game_id=self.game_id,
             seq_num=0,  # EventBus 自动分配
             event_type=EventType.SPEECH_TURN_EVENT,

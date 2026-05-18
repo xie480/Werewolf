@@ -24,7 +24,7 @@
 """
 
 import json
-import uuid
+from ai_werewolf_core.utils.snowflake import get_snowflake
 import asyncio
 from typing import Callable, Optional, Awaitable, Union, List
 
@@ -78,7 +78,7 @@ class EventBus:
     """
 
     def __init__(self, seq_generator: Optional[RedisSeqGenerator] = None):
-        self.instance_id = str(uuid.uuid4())
+        self.instance_id = get_snowflake().next_id()
         self._pubsub_task: Optional[asyncio.Task] = None
         
         # Redis 时序发号器 (支持依赖注入便于测试)
