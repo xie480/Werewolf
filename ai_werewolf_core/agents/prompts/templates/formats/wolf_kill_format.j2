@@ -12,8 +12,8 @@
   
   "suspect_list": {"玩家ID": float (0.0到1.0之间的神职嫌疑度/击杀价值，必须包含场上所有玩家的唯一标识ID（无论是否存活），确保列表完整不遗漏任何玩家)},
 
-  "action_type": "string (必须是以下之一: {{ allowed_actions | join(', ') }})",
-  "action_target": "string (你要击杀的目标玩家ID。如果决定空刀，请将 action_type 设为 {{ ActionType.PASS.value }}，action_target 设为 null)"
+  "action_type": "string (必须是以下之一: {{ allowed_actions | join(', ') }}。注意：首夜严禁选择 PASS)",
+  "action_target": "string (你要击杀的目标玩家ID。首夜必须指定一个具体的玩家ID。如果是后续夜晚决定空刀，才将 action_type 设为 {{ ActionType.PASS.value }}，action_target 设为 null)"
 }
 
 【注意事项】
