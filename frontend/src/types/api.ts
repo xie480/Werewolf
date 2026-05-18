@@ -47,6 +47,8 @@ export interface GameDetailResponse {
   phase: string | null
   round: number
   player_count: number
+  current_speaker?: string | null
+  speech_queue?: string[]
 }
 
 /** 对局状态简要响应（start/advance/abort 操作后） */
@@ -55,6 +57,8 @@ export interface GameStatusResponse {
   status: string
   phase: string | null
   round: number
+  current_speaker?: string | null
+  speech_queue?: string[]
 }
 
 /** 对局列表响应 */

@@ -88,6 +88,10 @@ export interface GameContext {
   last_seq_num: number
   /** WebSocket 连接状态 */
   ws_connected: boolean
+  /** 当前发言玩家 ID */
+  current_speaker?: string | null
+  /** 发言队列 */
+  speech_queue?: string[]
 }
 
 

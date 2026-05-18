@@ -1,6 +1,6 @@
 """全局枚举定义 - Phase 1 基础设施。
 
-**Why**: 架构规范明确要求“绝对禁止魔法字符串”。所有代表游戏阶段、玩家角色、动作类型、事件类型、
+**Why**: 架构规范明确要求"绝对禁止魔法字符串"。所有代表游戏阶段、玩家角色、动作类型、事件类型、
 可见性等语义常量必须定义为 `Enum` 枚举类，确保编译安全和统一引用。
 如果在业务代码中直接使用字符串字面量（如 `if phase == "DAY_VOTE"`），
 将导致难以排查的拼写错误和重构困难。本模块提供唯一的数据来源。
@@ -107,6 +107,7 @@ class EventType(str, Enum):
     """
 
     SPEECH_EVENT = "SPEECH_EVENT"                       # 玩家发言
+    SPEECH_TURN_EVENT = "SPEECH_TURN_EVENT"             # 轮到某玩家发言
     VOTE_EVENT = "VOTE_EVENT"                           # 投票事件
     PHASE_TRANSITION_EVENT = "PHASE_TRANSITION_EVENT"   # 阶段切换
     PRIVATE_RESOLUTION_EVENT = "PRIVATE_RESOLUTION_EVENT"  # 私密结算（如验人结果）

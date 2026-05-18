@@ -136,7 +136,7 @@ async def on_phase_transition(event: Event):
             can_act = True
         elif new_phase == GamePhase.NIGHT_SEER_ACT and role == Role.SEER.value and is_alive:
             can_act = True
-        elif new_phase in (GamePhase.DAY_DISCUSSION, GamePhase.DAY_VOTE, GamePhase.DAY_PK_DISCUSSION, GamePhase.DAY_PK_VOTE) and is_alive:
+        elif new_phase in (GamePhase.DAY_VOTE, GamePhase.DAY_PK_VOTE) and is_alive:
             can_act = True
         elif new_phase == GamePhase.HUNTER_SHOOT and role == Role.HUNTER.value and not is_alive:
             can_act = True
@@ -215,6 +215,69 @@ async def on_phase_transition(event: Event):
     )
 
 
+async def on_speech_turn(event: Event):
+    """监听发言轮次事件，仅为当前轮到发言的玩家派发决策任务。
+
+    **Why**: 发言阶段采用顺序发言机制，每次 SPEECH_TURN_EVENT 触发时，
+    只唤醒当前应该发言的玩家，其余玩家继续等待。
+    """
+    if event.event_type != EventType.SPEECH_TURN_EVENT:
+        return
+
+    game_id = event.game_id
+    payload = event.payload
+    player_id = payload.get("player_id")
+    phase = payload.get("phase")
+    round_num = payload.get("round", 1)
+
+    if not player_id:
+        return
+
+    import os
+    logger.info(
+        "on_speech_turn_called",
+        game_id=game_id,
+        player_id=player_id,
+        pid=os.getpid(),
+    )
+
+    # 获取玩家信息，检查是否为 AI 玩家
+    player_mgr = PlayerStatusManager()
+    players_info = await player_mgr.get_all_players(game_id)
+    player_info = players_info.get(player_id)
+    if not player_info:
+        logger.warning("speech_turn_player_not_found", player_id=player_id)
+        return
+
+    is_human = player_info.get("is_human", False)
+    if is_human:
+        # 人类玩家不需要派发 AI 任务
+        logger.info("speech_turn_human_skip", player_id=player_id)
+        return
+
+    # 为当前玩家派发发言任务
+    loop = asyncio.get_running_loop()
+    logger.info(
+        "dispatching_speech_task",
+        game_id=game_id,
+        player_id=player_id,
+        phase=phase,
+        round=round_num,
+    )
+    await loop.run_in_executor(
+        None,
+        lambda pid=player_id: run_agent_decision.apply_async(
+            kwargs={
+                "game_id": game_id,
+                "player_id": pid,
+                "current_phase": phase,
+                "current_round": round_num,
+            }
+        ),
+    )
+
+
 def register_dispatchers(event_bus):
     """注册事件分发器"""
     event_bus.subscribe(EventType.PHASE_TRANSITION_EVENT, on_phase_transition, local_only=True)
+    event_bus.subscribe(EventType.SPEECH_TURN_EVENT, on_speech_turn, local_only=True)

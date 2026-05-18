@@ -211,15 +211,11 @@ function clearInnerThoughts(): void {
     return phase.value.startsWith('DAY_')
   })
 
-  /** 当前发言的玩家 ID（从 SPEECH_EVENT 中提取） */
-  const currentSpeaker = computed(() => {
-    if (events.value.length === 0) return null
-    const lastEvent = events.value[events.value.length - 1]
-    if (lastEvent.event_type === EventType.SPEECH_EVENT && lastEvent.speaker_id) {
-      return lastEvent.speaker_id
-    }
-    return null
-  })
+  /** 当前发言的玩家 ID */
+  const currentSpeaker = ref<string | null>(null)
+
+  /** 当前发言队列 */
+  const speechQueue = ref<string[]>([])
 
   /** 游戏上下文快照（用于组件只读访问） */
   const context = computed<GameContext>(() => ({
@@ -452,21 +448,48 @@ function clearInnerThoughts(): void {
       case EventType.PHASE_TRANSITION_EVENT:
         if (event.payload.new_phase) {
           phase.value = event.payload.new_phase as string
+          // 如果进入发言阶段，初始化发言队列
+          if (['DAY_DISCUSSION', 'DAY_PK_DISCUSSION', 'LAST_WORDS'].includes(phase.value)) {
+            speechQueue.value = players.value
+              .filter(p => p.is_alive)
+              .sort((a, b) => a.seat_number - b.seat_number)
+              .map(p => p.player_id)
+          } else {
+            speechQueue.value = []
+            currentSpeaker.value = null
+          }
         }
         // 阶段切换时，清空所有玩家的行动标记和内心 OS 收集池
         for (const p of players.value) {
           p.action_target = null
           p.action_type = null
+          p.is_speaking = false
         }
         clearInnerThoughts()
+        break
+
+      case EventType.SPEECH_TURN_EVENT:
+        {
+          const playerId = event.payload.player_id as string | undefined
+          if (playerId) {
+            currentSpeaker.value = playerId
+            for (const p of players.value) {
+              p.is_speaking = p.player_id === playerId
+            }
+          }
+        }
         break
 
       case EventType.SPEECH_EVENT:
         // 更新发言玩家标记，并提取内心 OS
         {
           const speakerId = (event.payload.actor_id ?? event.payload.speaker_id) as string | undefined
-          for (const p of players.value) {
-            p.is_speaking = p.player_id === speakerId
+          if (speakerId) {
+            // 发言完毕，从队列中移除
+            speechQueue.value = speechQueue.value.filter(id => id !== speakerId)
+            for (const p of players.value) {
+              p.is_speaking = false // 发言结束，取消高亮
+            }
           }
           // 保存当前发言人的内心 OS（用于 InnerOSPanel 展示）
           // 发言是顺序发生的，每轮只有一个人在发言，所以用 set 覆盖即可
@@ -608,6 +631,12 @@ function clearInnerThoughts(): void {
     phase.value = result.phase ?? null
     round.value = result.round
     playerCount.value = result.player_count
+    if (result.current_speaker !== undefined) {
+      currentSpeaker.value = result.current_speaker
+    }
+    if (result.speech_queue !== undefined) {
+      speechQueue.value = result.speech_queue
+    }
   }
 
   /** 应用 GameStatusResponse 到状态 */
@@ -615,6 +644,12 @@ function clearInnerThoughts(): void {
     status.value = result.status
     phase.value = result.phase ?? null
     round.value = result.round
+    if (result.current_speaker !== undefined) {
+      currentSpeaker.value = result.current_speaker
+    }
+    if (result.speech_queue !== undefined) {
+      speechQueue.value = result.speech_queue
+    }
   }
 
   /** 将 WebSocket EventPushMessage 转换为 EventLogEntry */
@@ -675,6 +710,7 @@ function clearInnerThoughts(): void {
     isNight,
     isDay,
     currentSpeaker,
+    speechQueue,
     innerThoughtMap,
     currentSpeechContent,
     context,

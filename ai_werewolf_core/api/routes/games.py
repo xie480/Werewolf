@@ -316,12 +316,29 @@ async def get_game(game_id: str) -> GameDetailResponse:
         all_players = await player_mgr.get_all_players(game_id)
         player_count = len(all_players)
 
+        # 获取当前发言队列状态
+        from ai_werewolf_core.core.engine.speech_manager import SpeechManager
+        speech_mgr = SpeechManager(game_id, event_bus)
+        current_speaker = await speech_mgr.get_current_speaker()
+        
+        # 获取完整队列
+        speech_queue = []
+        try:
+            redis = await speech_mgr._get_redis()
+            key = speech_mgr._queue_key()
+            queue_bytes = await redis.lrange(key, 0, -1)
+            speech_queue = [item.decode() if isinstance(item, bytes) else item for item in queue_bytes]
+        except Exception as e:
+            logger.warning("get_speech_queue_failed", game_id=game_id, error=str(e))
+
         return GameDetailResponse(
             game_id=game_id,
             status=status.value,
             phase=phase.value if phase else None,
             round=round_num,
             player_count=player_count,
+            current_speaker=current_speaker,
+            speech_queue=speech_queue,
         )
 
     except RedisUnavailableException as e:

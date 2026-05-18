@@ -126,6 +126,12 @@ function getTargetSeat(targetId?: string | null): number | 'PASS' | null {
   return targetPlayer ? targetPlayer.seat_number : null
 }
 
+/** 根据 player_id 获取玩家座位号，用于发言队列展示 */
+function getPlayerSeatNumber(playerId: string): number | string {
+  const player = store.players.find(p => p.player_id === playerId)
+  return player ? player.seat_number : '?'
+}
+
 /** 投票汇总列表（用于 VOTE_RESOLVE 阶段展示投票结果面板） */
 const voteSummary = computed(() => {
   return store.players
@@ -184,6 +190,22 @@ async function skipCurrentPhase() {
         <button v-if="isSpectator" class="skip-phase-btn" @click="skipCurrentPhase" title="跳过当前阶段">
           ⏭ 跳过
         </button>
+      </div>
+
+      <!-- 发言队列展示 -->
+      <div v-if="store.speechQueue && store.speechQueue.length > 0" class="speech-queue-container">
+        <span class="queue-label">发言顺序:</span>
+        <div class="queue-list">
+          <div
+            v-for="(playerId, index) in store.speechQueue"
+            :key="playerId"
+            class="queue-item"
+            :class="{ 'queue-item--current': index === 0 }"
+          >
+            <span class="queue-seat">{{ getPlayerSeatNumber(playerId) }}号</span>
+            <span v-if="index < store.speechQueue.length - 1" class="queue-arrow">→</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -419,6 +441,56 @@ async function skipCurrentPhase() {
     opacity: 0.8;
     transform: scale(1.05);
   }
+}
+
+/* 发言队列展示 */
+.speech-queue-container {
+  margin-top: 12px;
+  padding: 6px 16px;
+  background: rgba(20, 20, 40, 0.8);
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+  backdrop-filter: blur(4px);
+}
+
+.queue-label {
+  color: #aaa;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.queue-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #888;
+  font-size: 13px;
+  transition: all 0.3s ease;
+}
+
+.queue-item--current .queue-seat {
+  color: #ffd700;
+  font-weight: bold;
+  background: rgba(255, 215, 0, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 215, 0, 0.3);
+}
+
+.queue-arrow {
+  color: #555;
+  font-size: 12px;
 }
 
 /* 主战场布局 - 增加顶部内边距，防止阶段指示栏遮挡左侧最上侧玩家的发言/内心OS */

@@ -105,6 +105,7 @@ export type ActionType = (typeof ActionType)[keyof typeof ActionType]
 /** 事件类型枚举（与后端 EventType 对齐） */
 export const EventType = {
   SPEECH_EVENT: 'SPEECH_EVENT',
+  SPEECH_TURN_EVENT: 'SPEECH_TURN_EVENT',
   VOTE_EVENT: 'VOTE_EVENT',
   PHASE_TRANSITION_EVENT: 'PHASE_TRANSITION_EVENT',
   PRIVATE_RESOLUTION_EVENT: 'PRIVATE_RESOLUTION_EVENT',

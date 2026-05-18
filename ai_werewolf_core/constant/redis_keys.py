@@ -45,6 +45,9 @@ class RedisKeys:
     COMPRESSED_MEMORY_SUMMARY_PREFIX: str = "werewolf:memory:compressed_summary"
     """压缩记忆摘要 Key 前缀。完整格式: werewolf:memory:compressed_summary:{game_id}"""
 
+    SPEECH_QUEUE_PREFIX: str = "werewolf:speech_queue"
+    """发言队列 List Key 前缀。完整格式: werewolf:speech_queue:{game_id}"""
+
     # 新增常量
     PRIVATE_MEMORY_STATE_FIELD: str = "state"
     """私有记忆 Hash 中的 state 字段名"""
@@ -98,6 +101,14 @@ class RedisKeys:
         内容结构: Field 包含 phase (GamePhase), round (int) 等状态机上下文信息
         """
         return f"{RedisKeys.GAME_CONTEXT_PREFIX}:{game_id}:context"
+
+    @staticmethod
+    def speech_queue(game_id: str) -> str:
+        """构建发言队列 List Key: werewolf:speech_queue:{game_id}
+        存储结构: List
+        内容结构: 玩家 ID 字符串列表，按发言顺序排列
+        """
+        return f"{RedisKeys.SPEECH_QUEUE_PREFIX}:{game_id}"
 
     @staticmethod
     def player_info(game_id: str) -> str:

@@ -224,17 +224,17 @@ async function handleStartGame(): Promise<void> {
       <textarea
         v-model="speechContent"
         class="speech-input"
-        placeholder="输入发言内容..."
-        :disabled="isLocked"
+        :placeholder="store.currentSpeaker === humanPlayerId ? '输入发言内容...' : '等待其他玩家发言...'"
+        :disabled="isLocked || store.currentSpeaker !== humanPlayerId"
         maxlength="2000"
         rows="3"
       />
       <button
         class="action-btn action-btn--primary"
-        :disabled="isLocked || !speechContent.trim()"
+        :disabled="isLocked || !speechContent.trim() || store.currentSpeaker !== humanPlayerId"
         @click="handleSpeak"
       >
-        {{ isLocked ? '提交中...' : '发言' }}
+        {{ isLocked ? '提交中...' : (store.currentSpeaker === humanPlayerId ? '发言' : '等待中') }}
       </button>
     </div>
 

@@ -23,6 +23,7 @@ from ai_werewolf_core.core.engine.lifecycle import LifecycleManager
 from ai_werewolf_core.core.engine.player_manager import PlayerStatusManager
 from ai_werewolf_core.core.engine.resolver import ActionResolver
 from ai_werewolf_core.core.engine.roles.base import BaseRole
+from ai_werewolf_core.core.engine.speech_manager import SpeechManager
 from ai_werewolf_core.core.engine.vote_manager import VoteManager
 from ai_werewolf_core.core.event.bus import event_bus, EventBus
 from ai_werewolf_core.schemas.api import (
@@ -160,25 +161,9 @@ async def submit_action_internal(game_id: str, action: AgentAction) -> InternalS
             if current_phase not in speech_phases:
                 return InternalSubmitResult(False, f"当前阶段 [{current_phase.value}] 不允许发言")
             
-            # 创建并发布发言事件
-            speech_event = Event(
-                event_id=str(uuid.uuid4()),
-                game_id=game_id,
-                seq_num=0,
-                event_type=EventType.SPEECH_EVENT,
-                visibility=Visibility.PUBLIC,
-                target_agents=[],
-                timestamp=now_tz(),
-                payload={
-                    "actor_id": action.actor_id,
-                    "content": action.speech_content or action.reason,
-                    "inner_thought": action.inner_thought,
-                    "emotion": Emotion.NEUTRAL.value,
-                    "phase": current_phase.value,
-                    "round": action.round,
-                },
-            )
-            await event_bus.publish(speech_event)
+            # 通过 SpeechManager 提交发言（校验发言顺序 + 发布事件 + 推进队列）
+            speech_mgr = SpeechManager(game_id, event_bus)
+            await speech_mgr.submit_speech(action, roles=roles, current_phase=current_phase)
             return InternalSubmitResult(True, "发言提交成功")
             
         else:
@@ -354,24 +339,23 @@ async def submit_speech(game_id: str, request: SubmitSpeechRequest) -> ActionRes
 
         current_round = await _get_round(game_id, event_bus)
 
-        # 构建发言事件
-        speech_event = Event(
-            event_id=str(uuid.uuid4()),
-            game_id=game_id,
-            seq_num=0,  # EventBus 自动分配
-            event_type=EventType.SPEECH_EVENT,
-            visibility=Visibility.PUBLIC,
-            target_agents=[],
-            timestamp=now_tz(),
-            payload={
-                "actor_id": request.actor_id,
-                "content": request.content,
-                "emotion": request.emotion,
-                "phase": current_phase.value,
-                "round": current_round,
-            },
+        # 加载角色数据用于 SpeechManager 的发言顺序校验
+        roles = await _load_roles(game_id)
+
+        # 构造 AgentAction 传递给 SpeechManager（复用内部逻辑）
+        action = AgentAction(
+            action_type=ActionType.SPEAK,
+            actor_id=request.actor_id,
+            target_id=None,
+            phase=current_phase,
+            round=current_round,
+            reason="",
+            speech_content=request.content,
         )
-        await event_bus.publish(speech_event)
+
+        # 通过 SpeechManager 提交发言（顺序校验 + 发布事件 + 推进队列）
+        speech_mgr = SpeechManager(game_id, event_bus)
+        await speech_mgr.submit_speech(action, roles=roles, current_phase=current_phase)
 
         logger.info(
             "speech_submitted",

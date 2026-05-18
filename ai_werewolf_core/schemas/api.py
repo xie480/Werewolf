@@ -55,6 +55,8 @@ class GameDetailResponse(BaseModel):
     phase: Optional[str] = None
     round: int
     player_count: int
+    current_speaker: Optional[str] = None
+    speech_queue: List[str] = Field(default_factory=list)
 
 
 class GameStatusResponse(BaseModel):
@@ -64,6 +66,8 @@ class GameStatusResponse(BaseModel):
     status: str
     phase: Optional[str] = None
     round: int
+    current_speaker: Optional[str] = None
+    speech_queue: List[str] = Field(default_factory=list)
 
 
 class GameListResponse(BaseModel):

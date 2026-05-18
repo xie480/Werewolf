@@ -43,6 +43,7 @@ from ai_werewolf_core.core.engine.special_action_resolver import (
     SpecialActionResolver,
 )
 from ai_werewolf_core.core.engine.state_machine import PhaseStateMachine
+from ai_werewolf_core.core.engine.speech_manager import SpeechManager
 from ai_werewolf_core.core.engine.vote_manager import VoteManager, VoteResolveResult
 from ai_werewolf_core.core.engine.wolf_vote_manager import (
     WolfVoteManager,
@@ -210,6 +211,9 @@ class GameEngine:
             game_id, event_bus
         )
         self.special_action_resolver: SpecialActionResolver = SpecialActionResolver(
+            game_id, event_bus
+        )
+        self.speech_manager: SpeechManager = SpeechManager(
             game_id, event_bus
         )
 
@@ -415,6 +419,10 @@ class GameEngine:
                 await self.wolf_vote_manager.submit_vote(
                     action, self.roles, current_phase
                 )
+            elif current_phase in SPEECH_PHASES:
+                # 发言阶段：由 SpeechManager 负责顺序控制
+                # 实际发言内容处理在 submit_action_internal 中完成
+                pass
             elif current_phase in NIGHT_ACT_PHASES:
                 self.resolver.submit_action(action, self.roles, current_phase)
             elif current_phase in VOTE_PHASES:
@@ -425,9 +433,6 @@ class GameEngine:
                 await self.special_action_resolver.handle_action(
                     action, self.roles, current_phase
                 )
-            elif current_phase in SPEECH_PHASES:
-                # 发言阶段直接接受（ActionGate 已做基础校验）
-                pass
             elif current_phase in RESOLVE_PHASES:
                 return SubmitResult.rejected_result(
                     f"当前阶段 {current_phase.value} 不接受动作提交",
@@ -473,12 +478,14 @@ class GameEngine:
         is_completed = False
 
         if current_phase == GamePhase.NIGHT_WOLF_ACT:
-            # 狼人阶段：使用 WolfVoteManager 检测投票完整性
             is_completed = await self.wolf_vote_manager.is_vote_complete(self.roles)
         elif current_phase in NIGHT_ACT_PHASES:
             is_completed = self.resolver.is_action_completed(self.roles, current_phase)
         elif current_phase in VOTE_PHASES:
             is_completed = await self.vote_manager.is_action_completed(self.roles)
+        elif current_phase in SPEECH_PHASES:
+            # 发言阶段：检查是否所有待发言玩家已完成发言
+            is_completed = await self.speech_manager.is_queue_empty()
 
         if not is_completed:
             return
@@ -608,6 +615,10 @@ class GameEngine:
         # 进入狼人行动阶段时，初始化狼人投票回合
         if next_phase == GamePhase.NIGHT_WOLF_ACT:
             await self.wolf_vote_manager.begin_vote(round_num)
+
+        # 进入发言阶段时，初始化发言队列（按座位号升序）
+        if next_phase in SPEECH_PHASES:
+            await self.speech_manager.init_queue(self.roles, round_num, next_phase)
 
         await self.lifecycle.advance_phase(next_phase)
 
