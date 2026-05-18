@@ -140,15 +140,11 @@ class PromptBuilder:
         """强制追加包含 'json' 的英文提示，以满足 API response_format 的严格校验。"""
         return prompt + "\n\nPlease output your response in json format."
 
-    async def build_prompt(self, snapshot: MemorySnapshot, max_tokens: int = 6000) -> str:
+    async def build_prompt(self, snapshot: MemorySnapshot, current_phase: str, max_tokens: int = 6000) -> str:
         """
         根据记忆快照，组装完整的 Prompt。
         执行多层级熔断管线 (Assembly & Fallback Pipeline)
         """
-        current_phase = "INIT"
-        if snapshot.history and snapshot.history[-1].public_events:
-            current_phase = snapshot.history[-1].public_events[-1].phase.value
-
         system_part = self._render_system(snapshot, current_phase)
         role_part = self._render_role_strategy(snapshot.private_state.role, snapshot, current_phase)
         # 根据当前阶段和角色确定可用动作及是否可以发言
