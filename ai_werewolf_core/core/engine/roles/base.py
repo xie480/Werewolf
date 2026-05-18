@@ -55,6 +55,20 @@ class BaseRole(ABC):
             player_id=self.player_id,
         )
 
+    @property
+    def seat_number(self) -> int:
+        """获取玩家座位号。
+        
+        从 player_id (如 'player_1') 中提取数字部分。
+        
+        Returns:
+            座位号整数。
+        """
+        try:
+            return int(self.player_id.split("_")[1])
+        except (IndexError, ValueError) as e:
+            raise ValueError(f"无法从 player_id 提取座位号: {self.player_id}") from e
+
     # ------------------------------------------------------------------
     # 通用动作校验
     # ------------------------------------------------------------------
